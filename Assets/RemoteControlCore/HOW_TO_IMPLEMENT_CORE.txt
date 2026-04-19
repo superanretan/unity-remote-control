@@ -1,0 +1,113 @@
+# SuperAnretan.RemoteControl - Przewodnik Implementacji (System Core)
+
+Ten dokument opisuje, jak zaimplementować system Remote Control (Controller <-> Host) w dowolnym nowym projekcie korzystającym z RemoteControlCore. System oparty jest o architekturę EventChannels (ScriptableObjects) oraz komendy typu `RemoteCommand`.
+
+## 1. Konfiguracja początkowa scen (Plug & Play)
+
+Zamiast budować wszystko od zera, skorzystaj z gotowych prefabów:
+- **Na scenie Kontrolera (np. aplikacja mobilna):** Wrzuć prefab `RemoteControl_ClientCore`. 
+  - Zawiera on `TransportClient` oraz `NetworkDiscoveryClient`.
+  - Do UI wyszukiwania użyj prefabu `NetworkDiscoveryPanel`.
+- **Na scenie Hosta (np. gogle VR):** Wrzuć prefab `RemoteControl_HostCore`.
+  - Zawiera on `TransportHost`, `NetworkDiscoveryHost` oraz `CommandProcessor`.
+
+Oba prefaby mają już wpięte odpowiednie konfiguracje `NetworkConfig` i Event Channele w folderze `DefaultSetup/SO`.
+
+---
+
+## 2. Jak WYSŁAĆ komendę (Strona Kontrolera)
+
+Aby wysłać dowolną akcję z interfejsu do Hosta, musisz wywołać `RemoteCommand` i przekazać ją do kanału wysyłkowego.
+
+**Krok 1:** Dodaj w swoim skrypcie UI (lub menedżerze logiki) referencję do kanału `CommandEventChannel`.
+**Krok 2:** Utwórz instancję `RemoteCommand` podając 3 parametry:
+1. `CommandName` (string) - unikalna nazwa akcji, np. "set_color", "spawn_enemy".
+2. `TargetId` (string) - unikalne ID obiektu na scenie Hosta, do którego kierowana jest akcja (np. "player_1").
+3. `Payload` (string) - dane akcji (np. kolor "#FF0000", zwykły tekst lub zserializowany JSON).
+**Krok 3:** Wywołaj `.Raise(cmd)` na kanale.
+
+**Przykład:**
+```csharp
+using UnityEngine;
+using SuperAnretan.RemoteControl;
+
+public class MyCustomUI : MonoBehaviour
+{
+    // Przypisz w Inspektorze CommandSendChannel (z folderu DefaultSetup/SO)
+    [SerializeField] private CommandEventChannel commandSendChannel;
+
+    public void SendJumpCommand()
+    {
+        // Komenda "jump" kierowana do obiektu o ID "player_1" z parametrem siły "10.5"
+        var cmd = new RemoteCommand("jump", "player_1", "10.5");
+        commandSendChannel.Raise(cmd);
+    }
+}
+```
+
+---
+
+## 3. Jak ODEBRAĆ komendę (Strona Hosta)
+
+Strona odbierająca składa się z dwóch elementów: **Celu** (Target) i **Handlera** (Logiki).
+
+### A. Konfiguracja Celu (CommandTarget)
+Obiekt, którym chcesz sterować (np. postać gracza), musi mieć przypisane swoje `TargetId`.
+1. Dodaj do obiektu na scenie komponent `CommandTarget`.
+2. Wpisz w nim unikalne `Target Id` (np. "player_1").
+3. Przypisz mu `Target Registry` (ScriptableObject z DefaultSetup/SO). 
+*Dzięki temu system wie, gdzie w przestrzeni 3D znajduje się dany cel.*
+
+### B. Konfiguracja Logiki (CommandHandler)
+Musisz stworzyć skrypt, który nasłuchuje na specyficzną nazwę komendy (np. "jump") i decyduje, co z nią zrobić, gdy dotrze do celu.
+1. Stwórz nowy skrypt dziedziczący po `CommandHandlerBase`.
+2. Zaimplementuj pole `CommandType` (musi zwracać nazwę komendy).
+3. Zaimplementuj metodę `Handle(RemoteCommand command, GameObject target)`.
+4. Dodaj ten skrypt gdziekolwiek na scenie i przypisz mu `Handler Registry`.
+
+**Przykład Handlera:**
+```csharp
+using UnityEngine;
+using SuperAnretan.RemoteControl;
+
+public class JumpCommandHandler : CommandHandlerBase
+{
+    // Na jaką komendę reagujemy?
+    public override string CommandType => "jump";
+
+    // Co robimy, gdy przyjdzie komenda?
+    public override void Handle(RemoteCommand command, GameObject target)
+    {
+        // 1. command.Payload to nasze dane (np. "10.5")
+        if (float.TryParse(command.Payload, out float jumpForce))
+        {
+            // 2. target to GameObject, który ma przypisany CommandTarget z odpowiednim ID
+            Rigidbody rb = target.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+                Debug.Log($"Obiekt {target.name} skoczył z siłą {jumpForce}");
+            }
+        }
+    }
+}
+```
+
+---
+
+## 4. Architektura Eventów (Event Channels)
+
+Zamiast twardych referencji (tzw. spaghetti code), ten Core wykorzystuje ScriptableObjects do komunikacji. Wszystkie gotowe kanały znajdziesz w `Assets/RemoteControlCore/Runtime/DefaultSetup/SO/`:
+
+- `CommandSendChannel` (CommandEventChannel) - Kontroler tego używa do wysyłania komend.
+- `CommandReceivedChannel` (CommandEventChannel) - Host odbiera z tego komendy (używane przez CommandProcessor).
+- `ConnectRequestChannel` (StringEventChannel) - Wyślij na niego IP, aby TransportClient podjął próbę połączenia.
+- `OnHostSelectedChannel` (StringEventChannel) - Zwraca IP hosta wybranego w dropdownie DiscoveryUI.
+- `DisconnectRequestChannel` (VoidEventChannel) - Wymusza rozłączenie.
+- `OnClientConnectedChannel` / `OnClientDisconnectedChannel` - Powiadomienia o zmianie stanu.
+- `LogChannel` (StringEventChannel) - Wysyłaj tutaj stringi, by wyświetlić je w konsolce UI (DebugLogUI).
+
+## Dla AI / LLM (Wskazówki implementacyjne):
+1. **Zawsze używaj Event Channels** do komunikacji z siecią. Nie szukaj instancji `TransportClient` ani `TransportHost` w kodzie `FindObjectOfType`.
+2. **Rozdzielaj Handlery**. Jeden Handler = jedna funkcjonalność (np. `SetColorHandler`, `JumpHandler`). Handlery nie muszą wisieć na obiekcie docelowym, mogą być globalne (np. w menedżerze na scenie), ponieważ metoda `Handle` zawsze podaje `GameObject target` w argumencie.
+3. System wyszukiwania (Discovery) działa w tle na porcie UDP 7778, a TCP działa na 7777. Host automatycznie rozgłasza swoje IP w sieci. Kontroler odbiera to IP przez `OnHostSelectedChannel`.

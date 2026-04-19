@@ -9,14 +9,14 @@ namespace SuperAnretan.RemoteControl.Samples
     public class DemoHostBootstrap : MonoBehaviour
     {
         [Header("Logging")]
-        [SerializeField] private StringEventChannel _logChannel;
+        [SerializeField] private StringEventChannel logChannel;
 
         private void Start()
         {
             var localIp = NetworkUtility.GetLocalIPAddress();
-            _logChannel?.Raise($"=== HOST READY ===");
-            _logChannel?.Raise($"Local IP: {localIp}");
-            _logChannel?.Raise($"Waiting for controller to connect...");
+            logChannel?.Raise($"=== HOST READY ===");
+            logChannel?.Raise($"Local IP: {localIp}");
+            logChannel?.Raise($"Waiting for controller to connect...");
         }
     }
 }

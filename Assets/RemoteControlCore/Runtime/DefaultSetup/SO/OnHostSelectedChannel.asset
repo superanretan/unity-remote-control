@@ -9,9 +9,6 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 320c164c172812f43a02b22eef206bf0, type: 3}
-  m_Name: NetworkConfig
-  m_EditorClassIdentifier: SuperAnretan.RemoteControl.Runtime::SuperAnretan.RemoteControl.NetworkConfig
-  port: 7777
-  maxConnections: 4
-  hostIP: 192.168.1.15
+  m_Script: {fileID: 11500000, guid: 1575b7e56695be849b59874afdb5bca1, type: 3}
+  m_Name: OnHostSelectedChannel
+  m_EditorClassIdentifier: SuperAnretan.RemoteControl.Runtime::SuperAnretan.RemoteControl.StringEventChannel

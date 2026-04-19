@@ -12,31 +12,31 @@ namespace SuperAnretan.RemoteControl
     {
         [Header("Event Channel")]
         [Tooltip("The string event channel to listen to for log messages.")]
-        [SerializeField] private StringEventChannel _logChannel;
+        [SerializeField] private StringEventChannel logChannel;
 
         [Header("UI")]
         [Tooltip("TMP text component to display log lines.")]
-        [SerializeField] private TextMeshProUGUI _logText;
+        [SerializeField] private TextMeshProUGUI logText;
 
         [Header("Settings")]
         [Tooltip("Maximum number of log lines to keep on screen.")]
-        [SerializeField] private int _maxLines = 20;
+        [SerializeField] private int maxLines = 20;
 
         private readonly Queue<string> _lines = new();
 
         private void OnEnable()
         {
-            if (_logChannel != null)
+            if (logChannel != null)
             {
-                _logChannel.OnRaised += OnLogMessage;
+                logChannel.OnRaised += OnLogMessage;
             }
         }
 
         private void OnDisable()
         {
-            if (_logChannel != null)
+            if (logChannel != null)
             {
-                _logChannel.OnRaised -= OnLogMessage;
+                logChannel.OnRaised -= OnLogMessage;
             }
         }
 
@@ -45,14 +45,14 @@ namespace SuperAnretan.RemoteControl
             string timestamped = $"[{System.DateTime.Now:HH:mm:ss}] {message}";
 
             _lines.Enqueue(timestamped);
-            while (_lines.Count > _maxLines)
+            while (_lines.Count > maxLines)
             {
                 _lines.Dequeue();
             }
 
-            if (_logText != null)
+            if (logText != null)
             {
-                _logText.text = string.Join("\n", _lines);
+                logText.text = string.Join("\n", _lines);
             }
 
             Debug.Log(timestamped);
@@ -64,9 +64,9 @@ namespace SuperAnretan.RemoteControl
         public void ClearLog()
         {
             _lines.Clear();
-            if (_logText != null)
+            if (logText != null)
             {
-                _logText.text = string.Empty;
+                logText.text = string.Empty;
             }
         }
     }

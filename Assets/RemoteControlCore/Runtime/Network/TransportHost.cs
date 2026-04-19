@@ -15,21 +15,21 @@ namespace SuperAnretan.RemoteControl
     public class TransportHost : MonoBehaviour
     {
         [Header("Config")]
-        [SerializeField] private NetworkConfig _networkConfig;
-        [SerializeField] private bool _autoStart = true;
+        [SerializeField] private NetworkConfig networkConfig;
+        [SerializeField] private bool autoStart = true;
 
         [Header("Event Channels — Output")]
         [Tooltip("Raised when a valid command is received from a client.")]
-        [SerializeField] private CommandEventChannel _commandReceivedChannel;
+        [SerializeField] private CommandEventChannel commandReceivedChannel;
 
         [Tooltip("Raised when a client connects.")]
-        [SerializeField] private VoidEventChannel _onClientConnectedChannel;
+        [SerializeField] private VoidEventChannel onClientConnectedChannel;
 
         [Tooltip("Raised when a client disconnects.")]
-        [SerializeField] private VoidEventChannel _onClientDisconnectedChannel;
+        [SerializeField] private VoidEventChannel onClientDisconnectedChannel;
 
         [Header("Logging")]
-        [SerializeField] private StringEventChannel _logChannel;
+        [SerializeField] private StringEventChannel logChannel;
 
         private NetworkDriver _driver;
         private NativeList<NetworkConnection> _connections;
@@ -39,7 +39,7 @@ namespace SuperAnretan.RemoteControl
 
         private void Start()
         {
-            if (_autoStart)
+            if (autoStart)
             {
                 StartHost();
             }
@@ -57,23 +57,23 @@ namespace SuperAnretan.RemoteControl
             }
 
             _driver = NetworkDriver.Create();
-            var endpoint = NetworkEndpoint.AnyIpv4.WithPort(_networkConfig.Port);
+            var endpoint = NetworkEndpoint.AnyIpv4.WithPort(networkConfig.Port);
 
             if (_driver.Bind(endpoint) != 0)
             {
-                Log($"[Host] ERROR — Failed to bind to port {_networkConfig.Port}.");
+                Log($"[Host] ERROR — Failed to bind to port {networkConfig.Port}.");
                 _driver.Dispose();
                 return;
             }
 
             _driver.Listen();
             _connections = new NativeList<NetworkConnection>(
-                _networkConfig.MaxConnections, Allocator.Persistent);
+                networkConfig.MaxConnections, Allocator.Persistent);
 
             _isRunning = true;
 
             var localIp = NetworkUtility.GetLocalIPAddress();
-            Log($"[Host] Listening on {localIp}:{_networkConfig.Port}");
+            Log($"[Host] Listening on {localIp}:{networkConfig.Port}");
         }
 
         /// <summary>
@@ -127,7 +127,7 @@ namespace SuperAnretan.RemoteControl
             {
                 _connections.Add(newConnection);
                 Log("[Host] Client connected.");
-                _onClientConnectedChannel?.Raise();
+                onClientConnectedChannel?.Raise();
             }
         }
 
@@ -148,7 +148,7 @@ namespace SuperAnretan.RemoteControl
                         case NetworkEvent.Type.Disconnect:
                             Log("[Host] Client disconnected.");
                             _connections[i] = default;
-                            _onClientDisconnectedChannel?.Raise();
+                            onClientDisconnectedChannel?.Raise();
                             break;
                     }
                 }
@@ -178,7 +178,7 @@ namespace SuperAnretan.RemoteControl
             }
 
             Log($"[Host] Received: {command}");
-            _commandReceivedChannel?.Raise(command);
+            commandReceivedChannel?.Raise(command);
         }
 
         private void OnDestroy()
@@ -188,7 +188,7 @@ namespace SuperAnretan.RemoteControl
 
         private void Log(string message)
         {
-            _logChannel?.Raise(message);
+            logChannel?.Raise(message);
         }
     }
 }

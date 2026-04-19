@@ -44,10 +44,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8fe79d868371c604a9a6e5cda0c5a304, type: 3}
   m_Name: 
   m_EditorClassIdentifier: SuperAnretan.RemoteControl.Runtime::SuperAnretan.RemoteControl.TransportClient
-  _networkConfig: {fileID: 11400000, guid: 3c0e10330c74b9d4aa4f4e24f8aba383, type: 2}
-  _commandSendChannel: {fileID: 11400000, guid: 9437fb6b48b8b7e45a5922451ce259be, type: 2}
-  _connectRequestChannel: {fileID: 11400000, guid: 8b28d66d0e52b1847a522e2e97b9cf3f, type: 2}
-  _disconnectRequestChannel: {fileID: 11400000, guid: cd9757a3236b5c347be8439f2f5e66ac, type: 2}
-  _onConnectedChannel: {fileID: 11400000, guid: 390e242902c8c0b499294bf7d88f4ffa, type: 2}
-  _onDisconnectedChannel: {fileID: 11400000, guid: c50a0aeef4565ad4d9c90826450d8b32, type: 2}
-  _logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}
+  networkConfig: {fileID: 11400000, guid: 3c0e10330c74b9d4aa4f4e24f8aba383, type: 2}
+  commandSendChannel: {fileID: 11400000, guid: 9437fb6b48b8b7e45a5922451ce259be, type: 2}
+  connectRequestChannel: {fileID: 11400000, guid: 8b28d66d0e52b1847a522e2e97b9cf3f, type: 2}
+  disconnectRequestChannel: {fileID: 11400000, guid: cd9757a3236b5c347be8439f2f5e66ac, type: 2}
+  onConnectedChannel: {fileID: 11400000, guid: 390e242902c8c0b499294bf7d88f4ffa, type: 2}
+  onDisconnectedChannel: {fileID: 11400000, guid: c50a0aeef4565ad4d9c90826450d8b32, type: 2}
+  logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}

@@ -14,57 +14,58 @@ namespace SuperAnretan.RemoteControl
     public class TransportClient : MonoBehaviour
     {
         [Header("Config")]
-        [SerializeField] private NetworkConfig _networkConfig;
+        [SerializeField] private NetworkConfig networkConfig;
 
         [Header("Event Channels — Input")]
         [Tooltip("Listen for commands to send to the host.")]
-        [SerializeField] private CommandEventChannel _commandSendChannel;
+        [SerializeField] private CommandEventChannel commandSendChannel;
 
         [Tooltip("Listen for connect requests. Payload = host IP string.")]
-        [SerializeField] private StringEventChannel _connectRequestChannel;
+        [SerializeField] private StringEventChannel connectRequestChannel;
 
         [Tooltip("Listen for disconnect requests.")]
-        [SerializeField] private VoidEventChannel _disconnectRequestChannel;
+        [SerializeField] private VoidEventChannel disconnectRequestChannel;
 
         [Header("Event Channels — Output")]
         [Tooltip("Raised when successfully connected to the host.")]
-        [SerializeField] private VoidEventChannel _onConnectedChannel;
+        [SerializeField] private VoidEventChannel onConnectedChannel;
 
         [Tooltip("Raised when disconnected from the host.")]
-        [SerializeField] private VoidEventChannel _onDisconnectedChannel;
+        [SerializeField] private VoidEventChannel onDisconnectedChannel;
 
         [Header("Logging")]
-        [SerializeField] private StringEventChannel _logChannel;
+        [SerializeField] private StringEventChannel logChannel;
 
         private NetworkDriver _driver;
         private NetworkConnection _connection;
         private bool _isConnecting;
         private bool _isConnected;
+        private float _lastConnectingLogTime;
 
         public bool IsConnected => _isConnected;
 
         private void OnEnable()
         {
-            if (_connectRequestChannel != null)
-                _connectRequestChannel.OnRaised += OnConnectRequest;
+            if (connectRequestChannel != null)
+                connectRequestChannel.OnRaised += OnConnectRequest;
 
-            if (_disconnectRequestChannel != null)
-                _disconnectRequestChannel.OnRaised += OnDisconnectRequest;
+            if (disconnectRequestChannel != null)
+                disconnectRequestChannel.OnRaised += OnDisconnectRequest;
 
-            if (_commandSendChannel != null)
-                _commandSendChannel.OnRaised += OnSendCommandRequest;
+            if (commandSendChannel != null)
+                commandSendChannel.OnRaised += OnSendCommandRequest;
         }
 
         private void OnDisable()
         {
-            if (_connectRequestChannel != null)
-                _connectRequestChannel.OnRaised -= OnConnectRequest;
+            if (connectRequestChannel != null)
+                connectRequestChannel.OnRaised -= OnConnectRequest;
 
-            if (_disconnectRequestChannel != null)
-                _disconnectRequestChannel.OnRaised -= OnDisconnectRequest;
+            if (disconnectRequestChannel != null)
+                disconnectRequestChannel.OnRaised -= OnDisconnectRequest;
 
-            if (_commandSendChannel != null)
-                _commandSendChannel.OnRaised -= OnSendCommandRequest;
+            if (commandSendChannel != null)
+                commandSendChannel.OnRaised -= OnSendCommandRequest;
         }
 
         // ───────── Channel callbacks ─────────
@@ -99,7 +100,7 @@ namespace SuperAnretan.RemoteControl
 
             _driver = NetworkDriver.Create();
 
-            if (!NetworkEndpoint.TryParse(hostIp, _networkConfig.Port, out var endpoint))
+            if (!NetworkEndpoint.TryParse(hostIp, networkConfig.Port, out var endpoint))
             {
                 Log($"[Client] ERROR — Invalid IP: {hostIp}");
                 _driver.Dispose();
@@ -108,8 +109,9 @@ namespace SuperAnretan.RemoteControl
 
             _connection = _driver.Connect(endpoint);
             _isConnecting = true;
+            _lastConnectingLogTime = Time.time;
 
-            Log($"[Client] Connecting to {hostIp}:{_networkConfig.Port}...");
+            Log($"[Client] Connecting to {hostIp}:{networkConfig.Port}...");
         }
 
         /// <summary>
@@ -126,7 +128,7 @@ namespace SuperAnretan.RemoteControl
 
             Cleanup();
             Log("[Client] Disconnected.");
-            _onDisconnectedChannel?.Raise();
+            onDisconnectedChannel?.Raise();
         }
 
         /// <summary>
@@ -165,6 +167,13 @@ namespace SuperAnretan.RemoteControl
         private void Update()
         {
             if (!_isConnecting && !_isConnected) return;
+
+            if (_isConnecting && Time.time - _lastConnectingLogTime > 5f)
+            {
+                _lastConnectingLogTime = Time.time;
+                Log("[Client] Wciąż próbuję się połączyć... (Sprawdź IP i zaporę/firewall)");
+            }
+
             if (!_driver.IsCreated) return;
 
             _driver.ScheduleUpdate().Complete();
@@ -179,7 +188,7 @@ namespace SuperAnretan.RemoteControl
                         _isConnecting = false;
                         _isConnected = true;
                         Log("[Client] Connected to host.");
-                        _onConnectedChannel?.Raise();
+                        onConnectedChannel?.Raise();
                         break;
 
                     case NetworkEvent.Type.Disconnect:
@@ -187,7 +196,7 @@ namespace SuperAnretan.RemoteControl
                         _isConnected = false;
                         Log("[Client] Disconnected by host.");
                         Cleanup();
-                        _onDisconnectedChannel?.Raise();
+                        onDisconnectedChannel?.Raise();
                         break;
 
                     case NetworkEvent.Type.Data:
@@ -216,7 +225,7 @@ namespace SuperAnretan.RemoteControl
 
         private void Log(string message)
         {
-            _logChannel?.Raise(message);
+            logChannel?.Raise(message);
         }
     }
 }

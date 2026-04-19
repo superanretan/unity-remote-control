@@ -45,12 +45,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d759edb7a752e9c44aa768b0b61ba26b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: SuperAnretan.RemoteControl.Runtime::SuperAnretan.RemoteControl.TransportHost
-  _networkConfig: {fileID: 11400000, guid: 3c0e10330c74b9d4aa4f4e24f8aba383, type: 2}
-  _autoStart: 1
-  _commandReceivedChannel: {fileID: 11400000, guid: 5b8fd39c24034b04fbfb1b4a6fb1de32, type: 2}
-  _onClientConnectedChannel: {fileID: 11400000, guid: 22bbe465241d241418926c999b0d6fa1, type: 2}
-  _onClientDisconnectedChannel: {fileID: 11400000, guid: c618ec26f1162ba48a7a6e0a205b12c8, type: 2}
-  _logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}
+  networkConfig: {fileID: 11400000, guid: 3c0e10330c74b9d4aa4f4e24f8aba383, type: 2}
+  autoStart: 1
+  commandReceivedChannel: {fileID: 11400000, guid: 5b8fd39c24034b04fbfb1b4a6fb1de32, type: 2}
+  onClientConnectedChannel: {fileID: 11400000, guid: 22bbe465241d241418926c999b0d6fa1, type: 2}
+  onClientDisconnectedChannel: {fileID: 11400000, guid: c618ec26f1162ba48a7a6e0a205b12c8, type: 2}
+  logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}
 --- !u!114 &8361490537073010854
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -63,7 +63,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 87fbd531e9d817442b7c60a7f12dc270, type: 3}
   m_Name: 
   m_EditorClassIdentifier: SuperAnretan.RemoteControl.Runtime::SuperAnretan.RemoteControl.CommandProcessor
-  _commandReceivedChannel: {fileID: 11400000, guid: 5b8fd39c24034b04fbfb1b4a6fb1de32, type: 2}
-  _handlerRegistry: {fileID: 11400000, guid: bb5b47b03a879ff4d87dbafbfa60f5f3, type: 2}
-  _targetRegistry: {fileID: 11400000, guid: 49ec03c304848474d86c951d0ec02f1a, type: 2}
-  _logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}
+  commandReceivedChannel: {fileID: 11400000, guid: 5b8fd39c24034b04fbfb1b4a6fb1de32, type: 2}
+  handlerRegistry: {fileID: 11400000, guid: bb5b47b03a879ff4d87dbafbfa60f5f3, type: 2}
+  targetRegistry: {fileID: 11400000, guid: 49ec03c304848474d86c951d0ec02f1a, type: 2}
+  logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}

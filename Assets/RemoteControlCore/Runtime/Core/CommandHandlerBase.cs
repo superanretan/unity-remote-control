@@ -11,7 +11,7 @@ namespace SuperAnretan.RemoteControl
     {
         [Header("Registry")]
         [Tooltip("The handler registry SO this handler registers into at runtime.")]
-        [SerializeField] private CommandHandlerRegistry _handlerRegistry;
+        [SerializeField] private CommandHandlerRegistry handlerRegistry;
 
         /// <inheritdoc/>
         public abstract string CommandType { get; }
@@ -21,9 +21,9 @@ namespace SuperAnretan.RemoteControl
 
         protected virtual void OnEnable()
         {
-            if (_handlerRegistry != null)
+            if (handlerRegistry != null)
             {
-                _handlerRegistry.Register(this);
+                handlerRegistry.Register(this);
             }
             else
             {
@@ -33,9 +33,9 @@ namespace SuperAnretan.RemoteControl
 
         protected virtual void OnDisable()
         {
-            if (_handlerRegistry != null)
+            if (handlerRegistry != null)
             {
-                _handlerRegistry.Unregister(this);
+                handlerRegistry.Unregister(this);
             }
         }
     }

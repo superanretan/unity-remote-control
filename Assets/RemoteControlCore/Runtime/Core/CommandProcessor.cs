@@ -11,32 +11,32 @@ namespace SuperAnretan.RemoteControl
     {
         [Header("Event Channels")]
         [Tooltip("Channel raised by TransportHost when a command is received.")]
-        [SerializeField] private CommandEventChannel _commandReceivedChannel;
+        [SerializeField] private CommandEventChannel commandReceivedChannel;
 
         [Header("Registries")]
         [Tooltip("Registry of all active command handlers.")]
-        [SerializeField] private CommandHandlerRegistry _handlerRegistry;
+        [SerializeField] private CommandHandlerRegistry handlerRegistry;
 
         [Tooltip("Registry of all active command targets.")]
-        [SerializeField] private CommandTargetRegistry _targetRegistry;
+        [SerializeField] private CommandTargetRegistry targetRegistry;
 
         [Header("Logging")]
         [Tooltip("Channel for debug log messages.")]
-        [SerializeField] private StringEventChannel _logChannel;
+        [SerializeField] private StringEventChannel logChannel;
 
         private void OnEnable()
         {
-            if (_commandReceivedChannel != null)
+            if (commandReceivedChannel != null)
             {
-                _commandReceivedChannel.OnRaised += ProcessCommand;
+                commandReceivedChannel.OnRaised += ProcessCommand;
             }
         }
 
         private void OnDisable()
         {
-            if (_commandReceivedChannel != null)
+            if (commandReceivedChannel != null)
             {
-                _commandReceivedChannel.OnRaised -= ProcessCommand;
+                commandReceivedChannel.OnRaised -= ProcessCommand;
             }
         }
 
@@ -49,14 +49,14 @@ namespace SuperAnretan.RemoteControl
             }
 
             // --- Resolve handler ---
-            if (!_handlerRegistry.TryGetHandler(command.commandType, out var handler))
+            if (!handlerRegistry.TryGetHandler(command.commandType, out var handler))
             {
                 Log($"[WARN] Unknown command type: '{command.commandType}' — no handler registered.");
                 return;
             }
 
             // --- Resolve target ---
-            if (!_targetRegistry.TryGetTarget(command.targetId, out var target))
+            if (!targetRegistry.TryGetTarget(command.targetId, out var target))
             {
                 Log($"[WARN] Target not found: '{command.targetId}'.");
                 return;
@@ -77,7 +77,7 @@ namespace SuperAnretan.RemoteControl
 
         private void Log(string message)
         {
-            _logChannel?.Raise(message);
+            logChannel?.Raise(message);
         }
     }
 }

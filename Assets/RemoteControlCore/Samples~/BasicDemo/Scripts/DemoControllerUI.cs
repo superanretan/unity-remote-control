@@ -13,100 +13,100 @@ namespace SuperAnretan.RemoteControl.Samples
     {
         [Header("Event Channels")]
         [Tooltip("Raise when user wants to send a command.")]
-        [SerializeField] private CommandEventChannel _commandSendChannel;
+        [SerializeField] private CommandEventChannel commandSendChannel;
 
         [Tooltip("Raise when user wants to connect. Payload = host IP.")]
-        [SerializeField] private StringEventChannel _connectRequestChannel;
+        [SerializeField] private StringEventChannel connectRequestChannel;
 
         [Tooltip("Raise when user wants to disconnect.")]
-        [SerializeField] private VoidEventChannel _disconnectRequestChannel;
+        [SerializeField] private VoidEventChannel disconnectRequestChannel;
 
         [Tooltip("Raised by TransportClient when connected.")]
-        [SerializeField] private VoidEventChannel _onConnectedChannel;
+        [SerializeField] private VoidEventChannel onConnectedChannel;
 
         [Tooltip("Raised by TransportClient when disconnected.")]
-        [SerializeField] private VoidEventChannel _onDisconnectedChannel;
+        [SerializeField] private VoidEventChannel onDisconnectedChannel;
 
         [Header("Logging")]
-        [SerializeField] private StringEventChannel _logChannel;
+        [SerializeField] private StringEventChannel logChannel;
 
         [Header("UI References")]
-        [SerializeField] private TMP_InputField _ipInputField;
-        [SerializeField] private Button _connectButton;
-        [SerializeField] private Button _disconnectButton;
-        [SerializeField] private Button _redButton;
-        [SerializeField] private Button _greenButton;
-        [SerializeField] private Button _blueButton;
+        [SerializeField] private TMP_InputField ipInputField;
+        [SerializeField] private Button connectButton;
+        [SerializeField] private Button disconnectButton;
+        [SerializeField] private Button redButton;
+        [SerializeField] private Button greenButton;
+        [SerializeField] private Button blueButton;
 
         [Header("Config")]
         [Tooltip("Target id to send commands to.")]
-        [SerializeField] private string _targetId = "demo_cube";
+        [SerializeField] private string targetId = "demo_cube";
 
         private bool _isConnected;
 
         private void OnEnable()
         {
             // UI button listeners
-            _connectButton?.onClick.AddListener(OnConnectClicked);
-            _disconnectButton?.onClick.AddListener(OnDisconnectClicked);
-            _redButton?.onClick.AddListener(() => SendColor("#FF0000"));
-            _greenButton?.onClick.AddListener(() => SendColor("#00FF00"));
-            _blueButton?.onClick.AddListener(() => SendColor("#0000FF"));
+            connectButton?.onClick.AddListener(OnConnectClicked);
+            disconnectButton?.onClick.AddListener(OnDisconnectClicked);
+            redButton?.onClick.AddListener(() => SendColor("#FF0000"));
+            greenButton?.onClick.AddListener(() => SendColor("#00FF00"));
+            blueButton?.onClick.AddListener(() => SendColor("#0000FF"));
 
             // Connection state listeners
-            if (_onConnectedChannel != null)
-                _onConnectedChannel.OnRaised += OnConnected;
-            if (_onDisconnectedChannel != null)
-                _onDisconnectedChannel.OnRaised += OnDisconnected;
+            if (onConnectedChannel != null)
+                onConnectedChannel.OnRaised += OnConnected;
+            if (onDisconnectedChannel != null)
+                onDisconnectedChannel.OnRaised += OnDisconnected;
 
             UpdateButtonStates();
         }
 
         private void OnDisable()
         {
-            _connectButton?.onClick.RemoveListener(OnConnectClicked);
-            _disconnectButton?.onClick.RemoveListener(OnDisconnectClicked);
-            _redButton?.onClick.RemoveAllListeners();
-            _greenButton?.onClick.RemoveAllListeners();
-            _blueButton?.onClick.RemoveAllListeners();
+            connectButton?.onClick.RemoveListener(OnConnectClicked);
+            disconnectButton?.onClick.RemoveListener(OnDisconnectClicked);
+            redButton?.onClick.RemoveAllListeners();
+            greenButton?.onClick.RemoveAllListeners();
+            blueButton?.onClick.RemoveAllListeners();
 
-            if (_onConnectedChannel != null)
-                _onConnectedChannel.OnRaised -= OnConnected;
-            if (_onDisconnectedChannel != null)
-                _onDisconnectedChannel.OnRaised -= OnDisconnected;
+            if (onConnectedChannel != null)
+                onConnectedChannel.OnRaised -= OnConnected;
+            if (onDisconnectedChannel != null)
+                onDisconnectedChannel.OnRaised -= OnDisconnected;
         }
 
         // ───────── UI Callbacks ─────────
 
         private void OnConnectClicked()
         {
-            string ip = _ipInputField != null ? _ipInputField.text.Trim() : "";
+            string ip = ipInputField != null ? ipInputField.text.Trim() : "";
             if (string.IsNullOrEmpty(ip))
             {
-                _logChannel?.Raise("[UI] Please enter a host IP address.");
+                logChannel?.Raise("[UI] Please enter a host IP address.");
                 return;
             }
 
-            _logChannel?.Raise($"[UI] Connecting to {ip}...");
-            _connectRequestChannel?.Raise(ip);
+            logChannel?.Raise($"[UI] Connecting to {ip}...");
+            connectRequestChannel?.Raise(ip);
         }
 
         private void OnDisconnectClicked()
         {
-            _logChannel?.Raise("[UI] Disconnecting...");
-            _disconnectRequestChannel?.Raise();
+            logChannel?.Raise("[UI] Disconnecting...");
+            disconnectRequestChannel?.Raise();
         }
 
         private void SendColor(string hexColor)
         {
             if (!_isConnected)
             {
-                _logChannel?.Raise("[UI] Not connected — cannot send.");
+                logChannel?.Raise("[UI] Not connected — cannot send.");
                 return;
             }
 
-            var command = new RemoteCommand("set_color", _targetId, hexColor);
-            _commandSendChannel?.Raise(command);
+            var command = new RemoteCommand("set_color", targetId, hexColor);
+            commandSendChannel?.Raise(command);
         }
 
         // ───────── Connection State ─────────
@@ -125,13 +125,13 @@ namespace SuperAnretan.RemoteControl.Samples
 
         private void UpdateButtonStates()
         {
-            if (_connectButton != null) _connectButton.interactable = !_isConnected;
-            if (_disconnectButton != null) _disconnectButton.interactable = _isConnected;
-            if (_redButton != null) _redButton.interactable = _isConnected;
-            if (_greenButton != null) _greenButton.interactable = _isConnected;
-            if (_blueButton != null) _blueButton.interactable = _isConnected;
+            if (connectButton != null) connectButton.interactable = !_isConnected;
+            if (disconnectButton != null) disconnectButton.interactable = _isConnected;
+            if (redButton != null) redButton.interactable = _isConnected;
+            if (greenButton != null) greenButton.interactable = _isConnected;
+            if (blueButton != null) blueButton.interactable = _isConnected;
 
-            if (_ipInputField != null) _ipInputField.interactable = !_isConnected;
+            if (ipInputField != null) ipInputField.interactable = !_isConnected;
         }
     }
 }

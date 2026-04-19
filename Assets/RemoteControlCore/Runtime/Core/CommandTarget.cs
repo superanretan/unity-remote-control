@@ -10,22 +10,22 @@ namespace SuperAnretan.RemoteControl
     {
         [Header("Identity")]
         [Tooltip("Unique string identifier for this target. Must match the targetId in incoming commands.")]
-        [SerializeField] private string _targetId;
+        [SerializeField] private string targetId;
 
         [Header("Registry")]
         [Tooltip("The target registry SO this object registers into at runtime.")]
-        [SerializeField] private CommandTargetRegistry _registry;
+        [SerializeField] private CommandTargetRegistry registry;
 
         /// <summary>
         /// The unique identifier for this target.
         /// </summary>
-        public string TargetId => _targetId;
+        public string TargetId => targetId;
 
         private void OnEnable()
         {
-            if (_registry != null)
+            if (registry != null)
             {
-                _registry.Register(this);
+                registry.Register(this);
             }
             else
             {
@@ -35,9 +35,9 @@ namespace SuperAnretan.RemoteControl
 
         private void OnDisable()
         {
-            if (_registry != null)
+            if (registry != null)
             {
-                _registry.Unregister(this);
+                registry.Unregister(this);
             }
         }
     }

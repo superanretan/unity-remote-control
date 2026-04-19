@@ -3,21 +3,29 @@ using SuperAnretan.RemoteControl;
 
 namespace SuperAnretan.RemoteControl.Samples
 {
-    /// <summary>
-    /// Bootstrap dla sceny Host.
-    /// Loguje lokalne IP na starcie żeby wiedzieć gdzie się podłączyć.
-    /// </summary>
+
     public class DemoHostBootstrap : MonoBehaviour
     {
         [Header("Logging")]
-        [SerializeField] private StringEventChannel _logChannel;
+        [SerializeField] private StringEventChannel logChannel;
+        [SerializeField] private NetworkConfig networkConfig;
+        [SerializeField] private TMPro.TMP_Text _hostInfoText;
 
         private void Start()
         {
-            var localIp = NetworkUtility.GetLocalIPAddress();
-            _logChannel?.Raise("=== HOST GOTOWY ===");
-            _logChannel?.Raise($"Lokalne IP: {localIp}");
-            _logChannel?.Raise("Czekam na połączenie kontrolera...");
+            var detectedIp = NetworkUtility.GetLocalIPAddress();
+            var port = networkConfig != null ? networkConfig.Port.ToString() : "7777";
+            
+            string info = $"Twój adres IP: {detectedIp}\nPort: {port}";
+
+            if (_hostInfoText != null)
+            {
+                _hostInfoText.text = info;
+            }
+
+            logChannel?.Raise("=== HOST GOTOWY ===");
+            logChannel?.Raise(info);
+            logChannel?.Raise("Czekam na połączenie kontrolera...");
         }
     }
 }

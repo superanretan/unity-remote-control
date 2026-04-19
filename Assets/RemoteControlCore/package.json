@@ -1,0 +1,37 @@
+{
+  "name": "com.superanretan.remotecontrol",
+  "version": "1.0.0",
+  "displayName": "Remote Control",
+  "description": "Universal local Wi-Fi remote control system for Unity. One build = Host (3D scene), another = Controller (UI). Commands sent over Unity Transport, deserialized from JSON, dispatched to handlers via ScriptableObject event channels. No singletons, no static, handler-based.",
+  "unity": "6000.0",
+  "unityRelease": "0f1",
+  "documentationUrl": "",
+  "changelogUrl": "",
+  "licensesUrl": "",
+  "dependencies": {
+    "com.unity.transport": "2.4.0",
+    "com.unity.ugui": "2.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0"
+  },
+  "keywords": [
+    "remote",
+    "control",
+    "transport",
+    "local",
+    "wifi",
+    "command",
+    "handler",
+    "scriptableobject"
+  ],
+  "author": {
+    "name": "SuperAnretan",
+    "url": ""
+  },
+  "samples": [
+    {
+      "displayName": "Basic Demo",
+      "description": "Host scene with a color-changing cube and Controller scene with UI buttons. Demonstrates the full command pipeline over local Wi-Fi.",
+      "path": "Samples~/BasicDemo"
+    }
+  ]
+}

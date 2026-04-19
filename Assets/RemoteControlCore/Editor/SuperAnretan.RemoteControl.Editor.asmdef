@@ -1,0 +1,18 @@
+{
+    "name": "SuperAnretan.RemoteControl.Editor",
+    "rootNamespace": "SuperAnretan.RemoteControl.Editor",
+    "references": [
+        "SuperAnretan.RemoteControl.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

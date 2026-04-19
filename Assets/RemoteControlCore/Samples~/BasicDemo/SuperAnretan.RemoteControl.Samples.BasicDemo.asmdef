@@ -1,0 +1,17 @@
+{
+    "name": "SuperAnretan.RemoteControl.Samples.BasicDemo",
+    "rootNamespace": "SuperAnretan.RemoteControl.Samples",
+    "references": [
+        "SuperAnretan.RemoteControl.Runtime",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

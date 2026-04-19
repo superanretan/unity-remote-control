@@ -10,7 +10,7 @@
   "licensesUrl": "",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SuperAnretan/unity-remote-control.git",
+    "url": "git@github.com:SuperAnretan/unity-remote-control.git",
     "revision": "main"
   },
   "dependencies": {

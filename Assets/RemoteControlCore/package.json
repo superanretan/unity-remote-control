@@ -1,6 +1,6 @@
 {
   "name": "com.superanretan.remotecontrol",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "displayName": "Remote Control",
   "description": "Universal local Wi-Fi remote control system for Unity. One build = Host (3D scene), another = Controller (UI). Commands sent over Unity Transport, deserialized from JSON, dispatched to handlers via ScriptableObject event channels. No singletons, no static, handler-based.",
   "unity": "6000.0",
@@ -8,6 +8,11 @@
   "documentationUrl": "",
   "changelogUrl": "",
   "licensesUrl": "",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SuperAnretan/unity-remote-control.git",
+    "revision": "main"
+  },
   "dependencies": {
     "com.unity.transport": "2.4.0",
     "com.unity.ugui": "2.0.0",

@@ -2,6 +2,11 @@
 
 Ten dokument opisuje, jak zaimplementować system Remote Control (Controller <-> Host) w dowolnym nowym projekcie korzystającym z RemoteControlCore. System oparty jest o architekturę EventChannels (ScriptableObjects) oraz komendy typu `RemoteCommand`.
 
+## 0. Instalacja w nowym projekcie (Unity Package Manager)
+Aby użyć tego modułu w innej aplikacji (po opublikowaniu jako Release na GitHubie), otwórz w nowym projekcie **Window -> Package Manager**, kliknij znak **+** i wybierz **"Add package from git URL..."**. Następnie wklej poniższy link:
+`https://github.com/SuperAnretan/unity-remote-control.git?path=/Assets/RemoteControlCore#v1.1.0`
+*(Zmień `v1.1.0` na aktualny numer wersji wydanego Release, a URL na właściwy dla Twojego konta).*
+
 ## 1. Konfiguracja początkowa scen (Plug & Play)
 
 Zamiast budować wszystko od zera, skorzystaj z gotowych prefabów:

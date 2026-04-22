@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 470881367909292321}
   - component: {fileID: 6710567911884326364}
   - component: {fileID: 8361490537073010854}
+  - component: {fileID: 7900587362194132515}
   m_Layer: 0
   m_Name: RemoteControl_HostCore
   m_TagString: Untagged
@@ -67,3 +68,18 @@ MonoBehaviour:
   handlerRegistry: {fileID: 11400000, guid: bb5b47b03a879ff4d87dbafbfa60f5f3, type: 2}
   targetRegistry: {fileID: 11400000, guid: 49ec03c304848474d86c951d0ec02f1a, type: 2}
   logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}
+--- !u!114 &7900587362194132515
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2999878989259175793}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c693560065ded459890fe2690904df5e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: SuperAnretan.RemoteControl.Runtime::SuperAnretan.RemoteControl.NetworkDiscoveryHost
+  networkConfig: {fileID: 11400000, guid: 3c0e10330c74b9d4aa4f4e24f8aba383, type: 2}
+  deviceName: Unity Host
+  broadcastInterval: 2

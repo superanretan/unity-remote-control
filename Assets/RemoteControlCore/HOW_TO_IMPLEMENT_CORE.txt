@@ -1,49 +1,86 @@
-# SuperAnretan.RemoteControl - Przewodnik Implementacji (System Core)
+# SuperAnretan.RemoteControl — Implementation Guide (Core System)
 
-Ten dokument opisuje, jak zaimplementować system Remote Control (Controller <-> Host) w dowolnym nowym projekcie korzystającym z RemoteControlCore. System oparty jest o architekturę EventChannels (ScriptableObjects) oraz komendy typu `RemoteCommand`.
-
-## 0. Instalacja w nowym projekcie (Unity Package Manager)
-Aby użyć tego modułu w innej aplikacji (po opublikowaniu jako Release na GitHubie), otwórz w nowym projekcie **Window -> Package Manager**, kliknij znak **+** i wybierz **"Add package from git URL..."**. Następnie wklej poniższy link:
-`https://github.com/SuperAnretan/unity-remote-control.git?path=/Assets/RemoteControlCore#v1.1.0`
-*(Zmień `v1.1.0` na aktualny numer wersji wydanego Release, a URL na właściwy dla Twojego konta).*
-
-## 1. Konfiguracja początkowa scen (Plug & Play)
-
-Zamiast budować wszystko od zera, skorzystaj z gotowych prefabów:
-- **Na scenie Kontrolera (np. aplikacja mobilna):** Wrzuć prefab `RemoteControl_ClientCore`. 
-  - Zawiera on `TransportClient` oraz `NetworkDiscoveryClient`.
-  - Do UI wyszukiwania użyj prefabu `NetworkDiscoveryPanel`.
-- **Na scenie Hosta (np. gogle VR):** Wrzuć prefab `RemoteControl_HostCore`.
-  - Zawiera on `TransportHost`, `NetworkDiscoveryHost` oraz `CommandProcessor`.
-
-Oba prefaby mają już wpięte odpowiednie konfiguracje `NetworkConfig` i Event Channele w folderze `DefaultSetup/SO`.
+This document explains how to implement the Remote Control system (Controller <-> Host)
+in any new project using RemoteControlCore. The architecture is based on EventChannels
+(ScriptableObjects) and `RemoteCommand` data objects sent over Unity Transport.
 
 ---
 
-## 2. Jak WYSŁAĆ komendę (Strona Kontrolera)
+## 0. Installation in a New Project (Unity Package Manager — SSH)
 
-Aby wysłać dowolną akcję z interfejsu do Hosta, musisz wywołać `RemoteCommand` i przekazać ją do kanału wysyłkowego.
+To use this module in another application, make sure your machine has SSH access
+configured for your GitHub account.
 
-**Krok 1:** Dodaj w swoim skrypcie UI (lub menedżerze logiki) referencję do kanału `CommandEventChannel`.
-**Krok 2:** Utwórz instancję `RemoteCommand` podając 3 parametry:
-1. `CommandName` (string) - unikalna nazwa akcji, np. "set_color", "spawn_enemy".
-2. `TargetId` (string) - unikalne ID obiektu na scenie Hosta, do którego kierowana jest akcja (np. "player_1").
-3. `Payload` (string) - dane akcji (np. kolor "#FF0000", zwykły tekst lub zserializowany JSON).
-**Krok 3:** Wywołaj `.Raise(cmd)` na kanale.
+Open **Window → Package Manager** in your target project, click **+** and choose
+**"Add package from git URL…"**. Paste the SSH link:
 
-**Przykład:**
+    git@github.com:SuperAnretan/unity-remote-control.git?path=/Assets/RemoteControlCore#v1.1.0
+
+*(Replace `v1.1.0` with the current release tag and adjust the URL for your repo.)*
+
+### Required dependency (must already be in the target project)
+
+| Package                  | Minimum version | Why                         |
+|--------------------------|-----------------|-----------------------------|
+| `com.unity.transport`    | 2.4.0           | TCP network transport       |
+| `com.unity.ugui`         | 2.0.0           | Canvas UI (buttons, etc.)   |
+| TextMeshPro              | (built-in)      | TMP_Dropdown, TMP text      |
+
+---
+
+## 1. Initial Scene Setup (Plug & Play)
+
+### Controller scene (e.g. mobile / desktop app)
+
+1. Create an empty GameObject → add `TransportClient` component.
+   - Assign the SO channels from `DefaultSetup/SO/` (see section 4 for the full list).
+2. Add the **`NetworkDiscoveryPanel`** prefab to your Canvas
+   (`Runtime/UI/Prefabs/NetworkDiscoveryPanel`).
+   - This single prefab contains everything the client needs for networking UI:
+     **host discovery dropdown**, **Connect / Disconnect buttons**, **status indicator**,
+     and a **scrolling log area**.
+   - It already has `NetworkDiscoveryClient` on itself — no extra components needed.
+   - All SO event channels from `DefaultSetup/SO/` are pre-wired in the prefab.
+
+### Host scene (e.g. VR headset)
+
+1. Create an empty GameObject → add:
+   - `TransportHost`
+   - `NetworkDiscoveryHost`
+   - `CommandProcessor`
+2. Assign the SO channels and registries from `DefaultSetup/SO/`.
+
+Both sides share the same `NetworkConfig` asset (port 7777 for TCP, port 7778 for UDP
+discovery). No code changes needed — just assign the SOs.
+
+---
+
+## 2. How to SEND a Command (Controller Side)
+
+To send any action from UI to the Host, create a `RemoteCommand` and raise it on the
+command send channel.
+
+**Step 1:** Add a reference to `CommandEventChannel` in your UI script.
+**Step 2:** Create a `RemoteCommand` with these parameters:
+  1. `commandType` (string) — unique action name, e.g. `"set_color"`, `"spawn_enemy"`.
+  2. `targetId` (string) — unique ID of the target object on the Host scene, e.g. `"player_1"`.
+  3. `value` (string) — primary data, e.g. `"#FF0000"`, a number, or plain text.
+  4. `payload` (string, optional) — extra JSON blob for complex payloads.
+**Step 3:** Call `.Raise(cmd)` on the channel.
+
+**Example:**
 ```csharp
 using UnityEngine;
 using SuperAnretan.RemoteControl;
 
 public class MyCustomUI : MonoBehaviour
 {
-    // Przypisz w Inspektorze CommandSendChannel (z folderu DefaultSetup/SO)
+    // Assign CommandSendChannel from DefaultSetup/SO in the Inspector
     [SerializeField] private CommandEventChannel commandSendChannel;
 
     public void SendJumpCommand()
     {
-        // Komenda "jump" kierowana do obiektu o ID "player_1" z parametrem siły "10.5"
+        // Command "jump" targeting object with ID "player_1", force value "10.5"
         var cmd = new RemoteCommand("jump", "player_1", "10.5");
         commandSendChannel.Raise(cmd);
     }
@@ -52,46 +89,50 @@ public class MyCustomUI : MonoBehaviour
 
 ---
 
-## 3. Jak ODEBRAĆ komendę (Strona Hosta)
+## 3. How to RECEIVE a Command (Host Side)
 
-Strona odbierająca składa się z dwóch elementów: **Celu** (Target) i **Handlera** (Logiki).
+The receiving side has two elements: a **Target** and a **Handler**.
 
-### A. Konfiguracja Celu (CommandTarget)
-Obiekt, którym chcesz sterować (np. postać gracza), musi mieć przypisane swoje `TargetId`.
-1. Dodaj do obiektu na scenie komponent `CommandTarget`.
-2. Wpisz w nim unikalne `Target Id` (np. "player_1").
-3. Przypisz mu `Target Registry` (ScriptableObject z DefaultSetup/SO). 
-*Dzięki temu system wie, gdzie w przestrzeni 3D znajduje się dany cel.*
+### A. Configuring the Target (CommandTarget)
 
-### B. Konfiguracja Logiki (CommandHandler)
-Musisz stworzyć skrypt, który nasłuchuje na specyficzną nazwę komendy (np. "jump") i decyduje, co z nią zrobić, gdy dotrze do celu.
-1. Stwórz nowy skrypt dziedziczący po `CommandHandlerBase`.
-2. Zaimplementuj pole `CommandType` (musi zwracać nazwę komendy).
-3. Zaimplementuj metodę `Handle(RemoteCommand command, GameObject target)`.
-4. Dodaj ten skrypt gdziekolwiek na scenie i przypisz mu `Handler Registry`.
+The object you want to control (e.g. the player character) needs a unique `TargetId`.
 
-**Przykład Handlera:**
+1. Add `CommandTarget` component to the scene object.
+2. Set its `Target Id` (e.g. `"player_1"`).
+3. Assign the `Target Registry` SO from `DefaultSetup/SO/`.
+
+This lets the system resolve which GameObject an incoming command refers to.
+
+### B. Configuring the Logic (CommandHandler)
+
+Create a script that listens for a specific command name (e.g. `"jump"`) and decides
+what to do when it arrives.
+
+1. Create a new script inheriting from `CommandHandlerBase`.
+2. Override `CommandType` — return the command name string.
+3. Override `Handle(RemoteCommand command, GameObject target)`.
+4. Place this script anywhere in the scene and assign the `Handler Registry` SO.
+
+**Example Handler:**
 ```csharp
 using UnityEngine;
 using SuperAnretan.RemoteControl;
 
 public class JumpCommandHandler : CommandHandlerBase
 {
-    // Na jaką komendę reagujemy?
+    // Which command do we react to?
     public override string CommandType => "jump";
 
-    // Co robimy, gdy przyjdzie komenda?
+    // What do we do when the command arrives?
     public override void Handle(RemoteCommand command, GameObject target)
     {
-        // 1. command.Payload to nasze dane (np. "10.5")
-        if (float.TryParse(command.Payload, out float jumpForce))
+        if (float.TryParse(command.value, out float jumpForce))
         {
-            // 2. target to GameObject, który ma przypisany CommandTarget z odpowiednim ID
             Rigidbody rb = target.GetComponent<Rigidbody>();
             if (rb != null)
             {
                 rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
-                Debug.Log($"Obiekt {target.name} skoczył z siłą {jumpForce}");
+                Debug.Log($"Object {target.name} jumped with force {jumpForce}");
             }
         }
     }
@@ -100,19 +141,107 @@ public class JumpCommandHandler : CommandHandlerBase
 
 ---
 
-## 4. Architektura Eventów (Event Channels)
+## 4. Event Channel Architecture
 
-Zamiast twardych referencji (tzw. spaghetti code), ten Core wykorzystuje ScriptableObjects do komunikacji. Wszystkie gotowe kanały znajdziesz w `Assets/RemoteControlCore/Runtime/DefaultSetup/SO/`:
+Instead of hard references (spaghetti code), this system uses ScriptableObjects for all
+cross-component communication. All pre-made channels live in:
 
-- `CommandSendChannel` (CommandEventChannel) - Kontroler tego używa do wysyłania komend.
-- `CommandReceivedChannel` (CommandEventChannel) - Host odbiera z tego komendy (używane przez CommandProcessor).
-- `ConnectRequestChannel` (StringEventChannel) - Wyślij na niego IP, aby TransportClient podjął próbę połączenia.
-- `OnHostSelectedChannel` (StringEventChannel) - Zwraca IP hosta wybranego w dropdownie DiscoveryUI.
-- `DisconnectRequestChannel` (VoidEventChannel) - Wymusza rozłączenie.
-- `OnClientConnectedChannel` / `OnClientDisconnectedChannel` - Powiadomienia o zmianie stanu.
-- `LogChannel` (StringEventChannel) - Wysyłaj tutaj stringi, by wyświetlić je w konsolce UI (DebugLogUI).
+    Assets/RemoteControlCore/Runtime/DefaultSetup/SO/
 
-## Dla AI / LLM (Wskazówki implementacyjne):
-1. **Zawsze używaj Event Channels** do komunikacji z siecią. Nie szukaj instancji `TransportClient` ani `TransportHost` w kodzie `FindObjectOfType`.
-2. **Rozdzielaj Handlery**. Jeden Handler = jedna funkcjonalność (np. `SetColorHandler`, `JumpHandler`). Handlery nie muszą wisieć na obiekcie docelowym, mogą być globalne (np. w menedżerze na scenie), ponieważ metoda `Handle` zawsze podaje `GameObject target` w argumencie.
-3. System wyszukiwania (Discovery) działa w tle na porcie UDP 7778, a TCP działa na 7777. Host automatycznie rozgłasza swoje IP w sieci. Kontroler odbiera to IP przez `OnHostSelectedChannel`.
+### Channel reference table
+
+| Asset name                      | Type                  | Purpose                                                   |
+|---------------------------------|-----------------------|-----------------------------------------------------------|
+| `CommandSendChannel`            | CommandEventChannel   | Controller raises this to send commands to the host.      |
+| `CommandReceivedChannel`        | CommandEventChannel   | Host receives deserialized commands here (CommandProcessor). |
+| `ConnectRequestChannel`         | StringEventChannel    | Raise with an IP string to make TransportClient connect.  |
+| `DisconnectRequestChannel`      | VoidEventChannel      | Raise to force TransportClient to disconnect.             |
+| `OnConnectedChannel`            | VoidEventChannel      | Fires when TransportClient successfully connects.         |
+| `OnDisconnectedChannel`         | VoidEventChannel      | Fires when TransportClient disconnects.                   |
+| `OnHostSelectedChannel`         | StringEventChannel    | Returns the IP of the host selected in the discovery dropdown. |
+| `OnClientConnectedChannel`      | VoidEventChannel      | Host-side: fires when a client connects.                  |
+| `OnClientDisconnectedChannel`   | VoidEventChannel      | Host-side: fires when a client disconnects.               |
+| `LogChannel`                    | StringEventChannel    | Send strings here to display in the on-screen log (DebugLogUI or NetworkDiscoveryPanel). |
+| `NetworkConfig`                 | NetworkConfig         | Shared config: TCP port (7777), UDP discovery port (7778), max connections, fallback host IP. |
+| `HandlerRegistry`               | CommandHandlerRegistry| Runtime registry of all active command handlers.          |
+| `TargetRegistry`                | CommandTargetRegistry | Runtime registry of all active command targets.           |
+
+---
+
+## 5. NetworkDiscoveryPanel (Controller UI Prefab)
+
+`Runtime/UI/Prefabs/NetworkDiscoveryPanel` is a self-contained prefab that provides
+the complete client-side networking UI in a single drag-and-drop.
+
+### What it includes
+
+| Element           | Function                                                       |
+|-------------------|----------------------------------------------------------------|
+| Host Dropdown     | TMP_Dropdown populated by UDP discovery (auto-scans on enable) |
+| Refresh button    | Restarts discovery scan                                        |
+| Connect button    | Raises `ConnectRequestChannel` with the selected host IP       |
+| Disconnect button | Raises `DisconnectRequestChannel`                              |
+| Status indicator  | Shows connection state: 🔴 Disconnected / 🟠 Connecting / 🟢 Connected |
+| Log area          | Timestamped scrolling log (listens to `LogChannel`)            |
+
+### Components on the root GameObject
+
+| Component                | Role                                      |
+|--------------------------|-------------------------------------------|
+| `NetworkDiscoveryClient` | Listens for UDP broadcast from host        |
+| `NetworkDiscoveryPanel`  | Wires all UI elements to SO event channels |
+
+### Automatic behavior
+
+- Buttons auto-enable/disable based on connection state.
+- Dropdown and Refresh lock while connected (prevents accidental changes).
+- Discovery starts automatically when the panel becomes active.
+- Falls back to `NetworkConfig.HostIP` if no host is discovered.
+
+### Prefab hierarchy
+
+```
+NetworkDiscoveryPanel         (Image, VLG, ContentSizeFitter, NetworkDiscoveryClient, NetworkDiscoveryPanel)
+├── Title                     (TextMeshProUGUI — "Network Discovery")
+├── StatusText                (TextMeshProUGUI — richText status indicator)
+├── Separator1                (Image, 1px)
+├── HostDropdown              (TMP_Dropdown)
+├── ButtonRow                 (HorizontalLayoutGroup)
+│   ├── RefreshButton         (Button)
+│   ├── ConnectButton         (Button)
+│   └── DisconnectButton      (Button)
+├── Separator2                (Image, 1px)
+└── LogArea                   (Image, dark background)
+    └── LogText               (TextMeshProUGUI — scrolling timestamped log)
+```
+
+---
+
+## 6. Debug Log Panel (Optional)
+
+`Runtime/Debug/DebugLogUI` is a simpler, standalone log display. It listens to any
+`StringEventChannel` (typically `LogChannel`) and renders the last N messages in a
+TextMeshProUGUI. Use this if you want a separate, always-visible debug console
+independent of the NetworkDiscoveryPanel.
+
+Note: `NetworkDiscoveryPanel` already has its own built-in log area, so `DebugLogUI`
+is only needed if you want a second log view or if you're on the Host side.
+
+---
+
+## 7. Tips for AI / LLM Implementation
+
+1. **Always use Event Channels** for network communication. Never use
+   `FindObjectOfType<TransportClient>` or similar in your code.
+2. **One Handler = one feature.** E.g. `SetColorHandler`, `JumpHandler`,
+   `SpawnHandler`. Handlers don't need to be on the target object — they can be
+   global (e.g. on a manager object), because `Handle()` always receives the
+   resolved `GameObject target` as a parameter.
+3. **Discovery runs on UDP port 7778**, TCP transport on **port 7777**. The Host
+   automatically broadcasts its IP on the local network. The Controller picks it
+   up through `NetworkDiscoveryClient` and displays it in the dropdown.
+4. **RemoteCommand has 4 fields:** `commandType`, `targetId`, `value`, and
+   `payload`. Use `value` for simple data (a color hex, a number) and `payload`
+   for complex JSON blobs. Both are strings.
+5. **DiscoveryUI.cs is deprecated.** Use `NetworkDiscoveryPanel` instead — it
+   replaces `DiscoveryUI` and adds Connect/Disconnect/Status/Log functionality.

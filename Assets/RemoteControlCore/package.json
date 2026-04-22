@@ -1,6 +1,6 @@
 {
   "name": "com.superanretan.remotecontrol",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "displayName": "Remote Control",
   "description": "Universal local Wi-Fi remote control system for Unity. One build = Host (3D scene), another = Controller (UI). Commands sent over Unity Transport, deserialized from JSON, dispatched to handlers via ScriptableObject event channels. No singletons, no static, handler-based.",
   "unity": "6000.0",

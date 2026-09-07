@@ -4,10 +4,15 @@
 //
 // All events reach C# through ONE callback: cb(typeUtf8Ptr, payloadUtf8Ptr).
 // Event types:
-//   signaling-open, signaling-closed(reason), device-list(json {devices:[...]}),
+//   signaling-open, signaling-closed(reason), signaling-rejected(reason), device-list(json {devices:[...]}),
 //   connecting(deviceId), connected, disconnected(reason),
 //   datachannel-open, datachannel-closed, datachannel-message(text),
 //   video-started("w,h"), video-size("w,h"), video-stopped, ice-state(state), log(text)
+//
+// Identity: the controller owns a stable 128-bit clientId (sessionStorage, survives F5 in the same tab;
+// Web Locks make a duplicated tab pick a fresh id). It is sent in register-controller so the server can
+// keep pairing across the forced socket reconnect (Vercel max duration) and the host's fromId guards keep
+// matching. The signaling socket dropping is routine and never tears down an established peer.
 
 var WebGLRemoteBridgeLib = {
 
@@ -19,6 +24,10 @@ var WebGLRemoteBridgeLib = {
     reconnectDelay: 1000,
     reconnectTimer: null,
     clientId: null,
+    clientIdReady: null,
+    memoryClientId: null,
+    rejected: false,
+    serverIceServers: [],
 
     pc: null,
     dc: null,
@@ -63,11 +72,80 @@ var WebGLRemoteBridgeLib = {
       return true;
     },
 
+    // ───────── identity ─────────
+    randomId: function () {
+      var bytes = new Uint8Array(16);
+      if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+        crypto.getRandomValues(bytes);
+      } else {
+        // Only reachable in very old engines; getRandomValues exists in every browser Unity WebGL supports.
+        WebGLRemote.log("[Signaling] crypto.getRandomValues unavailable — weak clientId");
+        for (var i = 0; i < 16; i++) bytes[i] = (Math.random() * 256) | 0;
+      }
+      var hex = "";
+      for (var j = 0; j < 16; j++) hex += (bytes[j] < 16 ? "0" : "") + bytes[j].toString(16);
+      return hex;
+    },
+
+    storageGet: function (key) {
+      try { return window.sessionStorage.getItem(key); } catch (e) { return WebGLRemote.memoryClientId; }
+    },
+
+    storageSet: function (key, value) {
+      WebGLRemote.memoryClientId = value;
+      try { window.sessionStorage.setItem(key, value); } catch (e) { /* sandboxed iframe / webview — memory fallback */ }
+    },
+
+    // Resolves true when this tab now owns `name`; false when another tab (a duplicate sharing our
+    // sessionStorage copy) already holds it. The lock is held until the page goes away.
+    acquireLock: function (name) {
+      return new Promise(function (resolve) {
+        if (typeof navigator === "undefined" || !navigator.locks || !navigator.locks.request) { resolve(true); return; }
+        try {
+          navigator.locks.request(name, { ifAvailable: true }, function (lock) {
+            if (!lock) { resolve(false); return; }
+            resolve(true);
+            return new Promise(function () {});          // never settles → lock held for the page lifetime
+          }).catch(function () { resolve(true); });
+        } catch (e) { resolve(true); }
+      });
+    },
+
+    ensureClientId: function () {
+      var S = WebGLRemote;
+      if (S.clientId) return Promise.resolve(S.clientId);
+      if (S.clientIdReady) return S.clientIdReady;
+      var KEY = "rc.clientId";
+      S.clientIdReady = (function tryId(candidate, attempt) {
+        if (!candidate || !/^[A-Za-z0-9_-]{8,64}$/.test(candidate)) candidate = S.randomId();
+        return S.acquireLock("rc-client-" + candidate).then(function (owned) {
+          if (!owned && attempt < 3) {
+            S.log("[Signaling] clientId already in use by another tab — generating a new one");
+            return tryId(S.randomId(), attempt + 1);
+          }
+          S.storageSet(KEY, candidate);
+          S.clientId = candidate;
+          return candidate;
+        });
+      })(S.storageGet(KEY), 0);
+      return S.clientIdReady;
+    },
+
+    // Another tab/device registered with our id and the server evicted us: take a fresh identity.
+    rotateClientId: function () {
+      var S = WebGLRemote;
+      S.clientId = null;
+      S.clientIdReady = null;
+      S.storageSet("rc.clientId", "");
+      S.log("[Signaling] clientId replaced by another connection — rotating identity");
+    },
+
     // ───────── signaling ─────────
     connectSignaling: function (url) {
       var S = WebGLRemote;
       S.wsUrl = url;
       S.wantSignaling = true;
+      S.rejected = false;
       S.openSocket();
     },
 
@@ -75,7 +153,15 @@ var WebGLRemoteBridgeLib = {
       var S = WebGLRemote;
       if (S.ws && (S.ws.readyState === 0 || S.ws.readyState === 1)) return;
       if (S.reconnectTimer) { clearTimeout(S.reconnectTimer); S.reconnectTimer = null; }
+      S.ensureClientId().then(function () {
+        if (!S.wantSignaling) return;
+        if (S.ws && (S.ws.readyState === 0 || S.ws.readyState === 1)) return;
+        S.openSocketNow();
+      });
+    },
 
+    openSocketNow: function () {
+      var S = WebGLRemote;
       var ws;
       try {
         ws = new WebSocket(S.wsUrl);
@@ -85,10 +171,14 @@ var WebGLRemoteBridgeLib = {
         return;
       }
       S.ws = ws;
+      var opened = false;
 
       ws.onopen = function () {
+        opened = true;
         S.reconnectDelay = 1000;
-        S.send({ type: "register-controller" });
+        S.rejected = false;
+        // The server honours our id and evicts any older socket using it (same-tab reconnect).
+        S.send({ type: "register-controller", clientId: S.clientId });
         S.send({ type: "list-devices" });
         S.emit("signaling-open", S.wsUrl);
       };
@@ -104,7 +194,17 @@ var WebGLRemoteBridgeLib = {
       ws.onclose = function (ev) {
         if (S.ws !== ws) return;
         S.ws = null;
-        S.emit("signaling-closed", "code=" + ev.code);
+        var reason = "code=" + ev.code + (ev.reason ? " reason=" + ev.reason : "");
+        if (ev.code === 4000) {
+          // "replaced": somebody else registered with our clientId while this socket was live.
+          S.rotateClientId();
+        } else if (ev.code === 4401 || ev.code === 4403) {
+          S.rejected = true;
+          S.emit("signaling-rejected", ev.reason || (ev.code === 4401 ? "unauthorized" : "origin-not-allowed"));
+        } else if (!opened) {
+          reason += " (closed before open — check URL, token and origin allowlist)";
+        }
+        S.emit("signaling-closed", reason);
         // A signaling drop does not kill an established peer connection, but a pending
         // negotiation cannot complete without it.
         if (S.pc && !S.connected) S.teardownPeer("signaling-lost");
@@ -115,11 +215,12 @@ var WebGLRemoteBridgeLib = {
     scheduleReconnect: function () {
       var S = WebGLRemote;
       if (!S.wantSignaling || S.reconnectTimer) return;
-      S.log("[Signaling] reconnect in " + (S.reconnectDelay / 1000) + "s");
+      var delay = S.rejected ? 10000 : S.reconnectDelay;     // rejected: keep retrying slowly so a server fix is picked up
+      S.log("[Signaling] reconnect in " + (delay / 1000) + "s");
       S.reconnectTimer = setTimeout(function () {
         S.reconnectTimer = null;
         if (S.wantSignaling) S.openSocket();
-      }, S.reconnectDelay);
+      }, delay);
       S.reconnectDelay = Math.min(S.reconnectDelay * 2, 10000);
     },
 
@@ -134,7 +235,13 @@ var WebGLRemoteBridgeLib = {
       var S = WebGLRemote;
       switch (msg.type) {
         case "registered":
-          S.clientId = msg.clientId || null;
+          if (msg.clientId && msg.clientId !== S.clientId) {
+            // Server replaced an invalid id with its own; adopt it so fromId stays consistent on reconnect.
+            S.clientId = msg.clientId;
+            S.storageSet("rc.clientId", msg.clientId);
+          }
+          S.serverIceServers = Array.isArray(msg.iceServers) ? msg.iceServers : [];
+          if (S.serverIceServers.length) S.log("[WebRTC] Server issued " + S.serverIceServers.length + " ICE server entr" + (S.serverIceServers.length === 1 ? "y" : "ies") + " (TURN)");
           break;
 
         case "device-list":
@@ -145,6 +252,7 @@ var WebGLRemoteBridgeLib = {
           var apc = S.pc;
           if (!apc) return;
           if (msg.sessionId && msg.sessionId !== S.sessionId) { S.log("[WebRTC] stale answer ignored"); return; }
+          if (msg.fromId && S.targetDeviceId && msg.fromId !== S.targetDeviceId) return;
           S.log("[WebRTC] SDP answer received");
           apc.setRemoteDescription({ type: "answer", sdp: msg.sdp }).then(function () {
             if (S.pc !== apc) return;                       // replaced while awaiting
@@ -171,17 +279,44 @@ var WebGLRemoteBridgeLib = {
           break;
 
         case "disconnect":
-          if (S.pc) S.teardownPeer(msg.reason || "host-disconnected");
+          // Only the paired host (or the server speaking for it: host-timeout) may end our session.
+          if (S.pc && (!msg.fromId || !S.targetDeviceId || msg.fromId === S.targetDeviceId))
+            S.teardownPeer(msg.reason || "host-disconnected");
           break;
 
         case "error":
-          S.log("[Signaling] error: " + msg.message);
+          if (msg.message === "unauthorized" || msg.message === "origin-not-allowed") {
+            S.rejected = true;
+            S.emit("signaling-rejected", msg.message);
+          } else {
+            S.log("[Signaling] error: " + msg.message);
+          }
           if (S.pc && !S.connected) S.teardownPeer("signaling-error");
           break;
       }
     },
 
     // ───────── peer ─────────
+    parseIceServers: function (json) {
+      // Accepts the 2.x format [{urls:[…], username?, credential?}] and the 1.x flat ["stun:…"] format.
+      var out = [];
+      var list = [];
+      try { list = JSON.parse(json || "[]"); } catch (e) {}
+      if (!Array.isArray(list)) return out;
+      list.forEach(function (entry) {
+        if (typeof entry === "string") { if (entry) out.push({ urls: entry }); return; }
+        if (!entry || typeof entry !== "object") return;
+        var urls = Array.isArray(entry.urls) ? entry.urls.filter(function (u) { return typeof u === "string" && u; })
+                 : (typeof entry.urls === "string" && entry.urls ? [entry.urls] : []);
+        if (!urls.length) return;
+        var server = { urls: urls };
+        if (typeof entry.username === "string" && entry.username) server.username = entry.username;
+        if (typeof entry.credential === "string" && entry.credential) server.credential = entry.credential;
+        out.push(server);
+      });
+      return out;
+    },
+
     connectPeer: function (deviceId, iceServersJson) {
       var S = WebGLRemote;
       if (S.pc) S.teardownPeer("reconnect");
@@ -190,13 +325,12 @@ var WebGLRemoteBridgeLib = {
         return;
       }
 
-      var urls = [];
-      try { urls = JSON.parse(iceServersJson || "[]"); } catch (e) {}
-      var cfg = { iceServers: urls.map(function (u) { return { urls: u }; }) };
+      // NetworkConfig entries + ephemeral TURN credentials issued by the signaling server (if configured).
+      var servers = S.parseIceServers(iceServersJson).concat(S.parseIceServers(JSON.stringify(S.serverIceServers || [])));
+      var cfg = { iceServers: servers };
 
       S.targetDeviceId = deviceId;
-      S.sessionId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID()
-                    : (Date.now().toString(36) + Math.random().toString(36).slice(2));
+      S.sessionId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : S.randomId();
       S.userDisconnect = false;
       S.connected = false;
       S.pendingCandidates = [];
@@ -277,7 +411,7 @@ var WebGLRemoteBridgeLib = {
       S.pc = null; S.dc = null;
       if (S.connectTimer) { clearTimeout(S.connectTimer); S.connectTimer = null; }
 
-      if (S.targetDeviceId && wasActive) S.send({ type: "disconnect", targetId: S.targetDeviceId, reason: reason });
+      if (S.targetDeviceId && wasActive) S.send({ type: "disconnect", targetId: S.targetDeviceId, sessionId: S.sessionId, reason: reason });
 
       S.detachVideo();
       if (dc) { try { dc.onopen = dc.onclose = dc.onmessage = null; dc.close(); } catch (e) {} }
@@ -300,6 +434,20 @@ var WebGLRemoteBridgeLib = {
       var S = WebGLRemote;
       S.userDisconnect = true;
       if (S.pc) S.teardownPeer("user");
+    },
+
+    // Tab closing / navigating away: tell the host right now so it stops capturing (fast path; the
+    // server-side pairing lease is the fallback). `pagehide` covers iOS Safari, which often skips
+    // beforeunload; a persisted (bfcache) pagehide is NOT a departure.
+    onPageLeaving: function () {
+      var S = WebGLRemote;
+      if (S.unloadSent) return;
+      S.unloadSent = true;
+      try {
+        if (S.pc && S.targetDeviceId)
+          S.send({ type: "disconnect", targetId: S.targetDeviceId, sessionId: S.sessionId, reason: "page-unload" });
+        if (S.ws) S.ws.close();
+      } catch (e) {}
     },
 
     // ───────── video ─────────
@@ -403,13 +551,12 @@ var WebGLRemoteBridgeLib = {
     WebGLRemote.cb = cb;
     if (!WebGLRemote._unloadHooked) {
       WebGLRemote._unloadHooked = true;
-      window.addEventListener("beforeunload", function () {
-        try {
-          if (WebGLRemote.pc && WebGLRemote.targetDeviceId)
-            WebGLRemote.send({ type: "disconnect", targetId: WebGLRemote.targetDeviceId, reason: "page-unload" });
-          if (WebGLRemote.ws) WebGLRemote.ws.close();
-        } catch (e) {}
+      window.addEventListener("beforeunload", function () { WebGLRemote.onPageLeaving(); });
+      window.addEventListener("pagehide", function (ev) {
+        if (ev && ev.persisted) return;           // bfcache / tab switch on iOS — page may come back
+        WebGLRemote.onPageLeaving();
       });
+      window.addEventListener("pageshow", function () { WebGLRemote.unloadSent = false; });
     }
   },
 

@@ -16,6 +16,10 @@ namespace SuperAnretan.RemoteControl
     ///   • reconnects with exponential back-off when Wi-Fi drops; re-registers with the same deviceId
     /// All events are raised on the Unity main thread (Update pumps an inbox).
     /// Pure C# so it also runs in the Editor for testing discovery without a device.
+    ///
+    /// The signaling server (Vercel) force-closes every socket after ≤300 s; the reconnect loop below
+    /// handles that transparently — the server keeps registry and pairing across the gap, so an
+    /// established WebRTC session is never affected.
     /// </summary>
     public class VisionProSignalingClient : MonoBehaviour
     {
@@ -136,8 +140,11 @@ namespace SuperAnretan.RemoteControl
 
         private async Task RunAsync(CancellationToken ct, int generation)
         {
-            var uri = new Uri(_networkConfig.SignalingServerUrl);
+            // Configured URL + ?token=… (NetworkConfig.SignalingToken). The token is a shared secret → keep it out of logs.
+            var uri = new Uri(_networkConfig.SignalingConnectUrl);
+            string displayUrl = _networkConfig.SignalingServerUrl;
             float heartbeat = Mathf.Max(0.5f, _networkConfig.HeartbeatInterval);
+            float deviceTimeout = _networkConfig.DeviceTimeout;
             int delayMs = 1000;
 
             while (!ct.IsCancellationRequested)
@@ -146,7 +153,7 @@ namespace SuperAnretan.RemoteControl
                 _socket = ws;
                 try
                 {
-                    Enqueue("__log", $"[Signaling] Connecting to {uri}", generation);
+                    Enqueue("__log", $"[Signaling] Connecting to {displayUrl}", generation);
                     await ws.ConnectAsync(uri, ct);
                     delayMs = 1000;
                     Enqueue("__open", null, generation);
@@ -157,7 +164,8 @@ namespace SuperAnretan.RemoteControl
                         deviceId = DeviceId,
                         deviceName = DeviceName,
                         platform = PlatformName(),
-                        status = Status
+                        status = Status,
+                        deviceTimeout = deviceTimeout
                     }, ct);
 
                     using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -197,7 +205,13 @@ namespace SuperAnretan.RemoteControl
                 do
                 {
                     result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-                    if (result.MessageType == WebSocketMessageType.Close) return;
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        // Server-initiated close: surface the reason (e.g. "replaced", "unauthorized") instead of staying silent.
+                        string why = string.IsNullOrEmpty(ws.CloseStatusDescription) ? ws.CloseStatus?.ToString() : ws.CloseStatusDescription;
+                        if (!string.IsNullOrEmpty(why)) Enqueue("__log", $"[Signaling] Server closed the socket: {why}", generation);
+                        return;
+                    }
                     accumulator.Write(buffer, 0, result.Count);
                     if (accumulator.Length > 1024 * 1024) throw new InvalidDataException("Signaling message too large");
                 }
@@ -301,7 +315,9 @@ namespace SuperAnretan.RemoteControl
                     break;
 
                 case "error":
-                    Log($"[Signaling] Server error: {msg.message}");
+                    Log(msg.message == "unauthorized"
+                        ? "[Signaling] ERROR — server rejected the connection: unauthorized. Check NetworkConfig.SignalingToken against the server's ROOM_TOKEN."
+                        : $"[Signaling] Server error: {msg.message}");
                     break;
             }
         }

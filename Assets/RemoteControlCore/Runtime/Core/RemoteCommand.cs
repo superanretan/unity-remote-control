@@ -30,6 +30,13 @@ namespace SuperAnretan.RemoteControl
         /// </summary>
         public string payload;
 
+        /// <summary>
+        /// Optional correlation id. When non-empty, a WebRTC host answers with a
+        /// <see cref="HostMessage"/> of type <c>ack</c> carrying the same <c>requestId</c>
+        /// once the command has been dispatched. Empty = fire-and-forget (1.x behaviour).
+        /// </summary>
+        public string requestId = string.Empty;
+
         public RemoteCommand() { }
 
         public RemoteCommand(string commandType, string targetId, string value, string payload = "")

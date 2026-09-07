@@ -7,6 +7,10 @@ Commands travel over **Unity Transport**, are serialized as **JSON**, and are di
 > **WebGL controller ↔ Apple Vision Pro host (WebRTC + signaling + screen streaming):** see
 > [WEBGL_VISIONOS_REMOTE.md](../../WEBGL_VISIONOS_REMOTE.md). It runs alongside the native path described below.
 > **Step-by-step host/client setup, buttons → commands:** [SETUP_HOST_CLIENT.md](../../SETUP_HOST_CLIENT.md).
+> **2.0 — host → controller return channel, signaling token/origin auth, TURN credentials, Vercel + Redis signaling:**
+> [REMOTE_CONTROLLER.md](../../REMOTE_CONTROLLER.md).
+> **Using this package in your own project (custom controller UI, Vercel deployment, WebGL upload, Vision Pro host):**
+> [INTEGRATION.md](../../INTEGRATION.md) — start here.
 
 ## Requirements
 

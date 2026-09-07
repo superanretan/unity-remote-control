@@ -66,6 +66,8 @@ MonoBehaviour:
   _disconnectRequestChannel: {fileID: 11400000, guid: cd9757a3236b5c347be8439f2f5e66ac, type: 2}
   _onConnectedChannel: {fileID: 11400000, guid: 390e242902c8c0b499294bf7d88f4ffa, type: 2}
   _onDisconnectedChannel: {fileID: 11400000, guid: c50a0aeef4565ad4d9c90826450d8b32, type: 2}
+  _hostMessageReceivedChannel: {fileID: 11400000, guid: 8b4e2d3f0c5e4f9a9b2c3d4e5f607182, type: 2}
+  _autoRequestId: 0
   _autoReconnect: 1
   _maxReconnectAttempts: 3
   _reconnectDelay: 2

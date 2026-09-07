@@ -5,6 +5,13 @@ Nothing in the command core changed: `RemoteCommand`, `CommandProcessor`, `Comma
 `CommandHandlerRegistry`, `CommandTarget`, `CommandTargetRegistry` and all ScriptableObject event
 channels are used as-is.
 
+> **Step-by-step integration** (deploy the signaling server, install the package in your own project, build a
+> custom controller UI, upload the WebGL build): [INTEGRATION.md](INTEGRATION.md).
+>
+> **2.0:** host → controller return channel (`HostMessage`), signaling token / origin allowlist, TURN credentials,
+> and the signaling server as a **Vercel Function + Redis** — see [REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.md) and
+> [SignalingServer/README.md](SignalingServer/README.md). Breaking changes are listed there (§0).
+
 ```
 NATIVE (unchanged)                          WEBGL ↔ VISION PRO (new)
 Controller (Win/Android) ─ UTP UDP ─ Host    Browser (Unity WebGL) ─ WebRTC ─ Vision Pro (visionOS)
@@ -29,9 +36,21 @@ A native UDP backend can later derive from `RemoteDiscoveryBase` and put an IP i
 raise that IP on `ConnectRequestChannel` and the existing `TransportClient` will connect — zero UI changes.
 
 ### Signaling (`SignalingServer/`)
-Tiny Node.js `ws` server. Hosts `register-device` + `heartbeat`; controllers get `device-list` pushes; `offer/answer/ice-candidate/disconnect`
-are relayed. It **never** carries `RemoteCommand` or media. Hosts vanish from the list `DEVICE_TIMEOUT` seconds after their last heartbeat
-(`NetworkConfig.DeviceTimeout` / `HeartbeatInterval` on the Unity side). One controller per host; a second offer gets `error: device-busy`.
+Node.js `ws` server, deployed as a **Vercel Function** (Fluid compute) with all state in **Redis**, or run locally with `npm start`.
+Hosts `register-device` + `heartbeat`; controllers `register-controller` with a **stable browser-generated `clientId`** and get
+`device-list` pushes; `offer/answer/ice-candidate/disconnect` are relayed through per-recipient **mailboxes** in Redis (pub/sub is only a
+doorbell), so host and controller may sit on different function instances and a message sent during a reconnect gap is not lost.
+It **never** carries `RemoteCommand`, `HostMessage` or media.
+
+Vercel closes every WebSocket after **300 s** (Hobby max duration). Both clients reconnect (~1 s) and re-register with the same ids;
+a socket closing changes nothing — not the registry, not the pairing, not the WebRTC session. A host leaves the list only when its
+`lastSeen` is older than the `deviceTimeout` it announced (`NetworkConfig.DeviceTimeout`, 15 s); a pairing ends only on an explicit
+`disconnect` from a live socket or when its 30 s lease is not refreshed by any instance (`disconnect{controller-gone}` to the host).
+`disconnect{host-timeout}` reaches the controller only for a really stale host. One controller per host: pairing is a `SET NX`
+lease, so of two simultaneous offers exactly one wins and the other gets `error: device-busy`.
+
+Auth: `?token=<ROOM_TOKEN>` (`NetworkConfig.SignalingToken`, appended automatically), `ALLOWED_ORIGINS`, input validation.
+URL on Vercel: `wss://<project>.vercel.app/api/signaling`.
 
 ### WebRTC
 * **Browser creates the offer** (`RTCDataChannel "commands"` + `addTransceiver("video", {direction:"recvonly"})`).
@@ -52,10 +71,16 @@ RemoteVideoView ◀─ Video track ◀──── native encoder ◀── RTCV
 ```
 
 ### DataChannel payload
-Exactly the JSON `RemoteCommand.ToJson()` already produces for Unity Transport:
+Controller → host: exactly the JSON `RemoteCommand.ToJson()` already produces for Unity Transport (`requestId` optional, 2.0):
 ```json
-{"commandType":"set_color","targetId":"demo_cube","value":"#FF0000","payload":""}
+{"commandType":"set_color","targetId":"demo_cube","value":"#FF0000","payload":"","requestId":""}
 ```
+Host → controller (2.0): `HostMessage` — `state` / `snapshot` / `capture` / `ack`, raised on `HostMessageReceivedChannel`:
+```json
+{"messageType":"state","schemaVersion":1,"topic":"navigation","value":"compartment-a","payload":"","requestId":""}
+```
+The host sends a full `snapshot` right after the DataChannel opens, then incremental `state`; `capture` reports
+`starting / streaming / stopped / error:<code>` independently of the DataChannel. Details: [REMOTE_CONTROLLER.md §1](REMOTE_CONTROLLER.md).
 
 ### Screen capture on visionOS (public APIs only, no passthrough, no enterprise entitlement)
 | Backend | OS | Notes |
@@ -89,6 +114,8 @@ Assets/RemoteControlCore/Runtime/WebGL/WebGLRemoteBridge.cs          # DllImport
 Assets/RemoteControlCore/Runtime/WebGL/WebGLDiscoveryClient.cs
 Assets/RemoteControlCore/Runtime/WebGL/WebGLRemoteTransport.cs
 Assets/RemoteControlCore/Runtime/WebGL/RemoteVideoView.cs
+Assets/RemoteControlCore/Runtime/Core/HostMessage.cs                  # 2.0 host → controller envelope
+Assets/RemoteControlCore/Runtime/DefaultSetup/SO/HostMessageSendChannel.asset, HostMessageReceivedChannel.asset   # 2.0
 Assets/RemoteControlCore/Runtime/Plugins/WebGL/WebGLRemoteBridge.jslib    # WebSocket + RTCPeerConnection + video texture (WebGL only)
 Assets/RemoteControlCore/Runtime/VisionOS/SuperAnretan.RemoteControl.VisionOS.asmdef   # Editor + VisionOS only
 Assets/RemoteControlCore/Runtime/VisionOS/SignalingMessage.cs
@@ -106,13 +133,13 @@ Assets/RemoteControlCore/Runtime/DefaultSetup/Prefabs/RemoteControl_VisionProHos
 Assets/RemoteControlCore/Runtime/DefaultSetup/Prefabs/NetworkDiscoveryPanel.prefab
 Assets/Scenes/VisionProHostScene.unity
 Assets/Scenes/NativeControllerScene.unity    # copy of the previous ControllerScene (IP input, Unity Transport)
-SignalingServer/server.js, package.json, README.md
-WEBGL_VISIONOS_REMOTE.md
+SignalingServer/server.js, package.json, README.md, src/*, api/*, vercel.json, test/*   # 2.0: Vercel Function + Redis
+WEBGL_VISIONOS_REMOTE.md, REMOTE_CONTROLLER.md
 ```
 
 ### Modified
 ```
-Assets/RemoteControlCore/Runtime/Network/NetworkConfig.cs      # + signalingServerUrl, deviceName, heartbeatInterval, deviceTimeout, iceServers, video*
+Assets/RemoteControlCore/Runtime/Network/NetworkConfig.cs      # + signalingServerUrl, signalingToken, deviceName, heartbeatInterval, deviceTimeout, iceServerEntries (STUN/TURN), video*
 Assets/RemoteControlCore/Runtime/Network/NetworkUtility.cs     # System.Net.Sockets guarded out of WebGL
 Assets/RemoteControlCore/Runtime/SuperAnretan.RemoteControl.Runtime.asmdef   # + UnityEngine.UI
 Assets/RemoteControlCore/Editor/SuperAnretan.RemoteControl.Editor.asmdef     # + VisionOS asmdef, TMP, UI
@@ -126,7 +153,7 @@ Untouched: `RemoteControl_ClientCore.prefab`, `RemoteControl_HostCore.prefab`, `
 
 ## 3. Controller setup (WebGL build)
 
-1. `NetworkConfig` (Assets/RemoteControlCore/Runtime/DefaultSetup/SO) → **Signaling Server Url** = `wss://your-server` (or `ws://<lan-ip>:8787` for a plain-http dev page).
+1. `NetworkConfig` (Assets/RemoteControlCore/Runtime/DefaultSetup/SO) → **Signaling Server Url** = `wss://<project>.vercel.app/api/signaling` (or `ws://<lan-ip>:8787` for a plain-http dev page), **Signaling Token** = the server's `ROOM_TOKEN`. The page's origin must be in the server's `ALLOWED_ORIGINS`.
 2. Scene: `Assets/Scenes/ControllerScene.unity` (regenerate any time with *Tools ▸ Remote Control ▸ WebRTC ▸ Build WebGL Controller Scene*).
    It contains `RemoteControl_WebGLClientCore` (WebGLDiscoveryClient + WebGLRemoteTransport) and `NetworkDiscoveryPanel`
    (dropdown / Refresh / Connect / Disconnect / status / RemoteVideoView / Red-Green-Blue demo buttons / log).
@@ -140,7 +167,7 @@ Untouched: `RemoteControl_ClientCore.prefab`, `RemoteControl_HostCore.prefab`, `
 Prerequisites: Unity 6000.3 **visionOS Build Support** module, Xcode 16+ (Xcode 27 beta for the ScreenCaptureKit backend),
 Apple Developer account. Windowed apps need nothing else; for a fully-immersive/MR app add `com.unity.xr.visionos` / PolySpatial as usual.
 
-1. `NetworkConfig` → **Device Name** = `Vision Pro Office` (or override per instance on `VisionProSignalingClient`), same **Signaling Server Url**.
+1. `NetworkConfig` → **Device Name** = `Vision Pro Office` (or override per instance on `VisionProSignalingClient`), same **Signaling Server Url** and **Signaling Token**, **Device Timeout** 15 s.
 2. Scene: `Assets/Scenes/VisionProHostScene.unity` (or drop `RemoteControl_VisionProHost.prefab` into your own scene). The prefab holds
    `VisionProSignalingClient`, `VisionProWebRtcHost`, `CommandProcessor` wired to the shared registries/channels. Attach your `CommandTarget`s
    and handlers exactly as before.
@@ -154,24 +181,33 @@ The native plugin compiles against either `LiveKitWebRTC` (`LKRTC…` classes) o
 If you prefer a manual xcframework, drop it into Xcode and remove the SPM lines from the post-processor.
 
 ## 5. Signaling server
-See [SignalingServer/README.md](SignalingServer/README.md). Quick start:
+See [SignalingServer/README.md](SignalingServer/README.md). Local quick start:
 ```bash
-cd SignalingServer && npm install && npm start      # ws://0.0.0.0:8787
+cd SignalingServer && npm install && npm start      # ws://0.0.0.0:8787, in-memory store
 ```
-Put it behind TLS (Caddy/nginx/Cloudflare Tunnel) for `wss://`.
+Production: deploy `SignalingServer/` as a Vercel project (Root Directory = `SignalingServer`, Fluid compute on) with a
+**single-region** Redis over TCP (`REDIS_URL`, or whatever the Marketplace integration injected — `KV_URL`,
+`REDIS_TLS_URL`, `UPSTASH_REDIS_URL` are read too; a REST URL is refused), `ROOM_TOKEN`, `ALLOWED_ORIGINS`; add a
+Firewall rate limit on `/api/signaling`. Verify the deployment with `curl /api/health?token=…` → `"state":"ok"`.
+Without a usable Redis the server refuses to pretend it works: clients get `server-misconfigured:<slug>`.
+Do not deploy while a presentation is running. Hobby: 300 s max duration per socket (handled), non-commercial use per Vercel ToS.
+Self-hosting alternative: TLS via reverse proxy (Caddy/nginx/Cloudflare Tunnel) or `TLS_CERT`/`TLS_KEY`.
 
 ## 6. Network flow
 ```
-Vision Pro app start → WS connect → register-device "Vision Pro Office" → heartbeat every 2 s
-WebGL page start     → WS connect → register-controller → device-list → dropdown
+Vision Pro app start → WS connect (?token=) → register-device "Vision Pro Office" {deviceTimeout:15} → heartbeat every 2 s
+WebGL page start     → WS connect (?token=) → register-controller {clientId (sessionStorage + Web Lock)} → device-list → dropdown
+                       every ≤300 s (Vercel): socket closed → reconnect ~1 s → re-register with the same id → nothing else changes
 User: select + Connect
    browser: RTCPeerConnection(iceServers), createDataChannel("commands"), addTransceiver(video recvonly), offer → server → host
    host:    setRemoteDescription, attach dormant video track, createAnswer → server → browser
    both:    trickle ICE via server, DTLS, SCTP
 DataChannel open  → controller: OnConnectedChannel (control UI + video view visible)
-                  → host:       OnClientConnectedChannel, VisionScreenCapture.StartCapture() → frames → video track
-Button → RemoteCommand → CommandSendChannel → DataChannel → RemoteCommand.FromJson → CommandReceivedChannel → CommandProcessor → handler
-Disconnect (either side / tab closed / Wi-Fi lost / ICE failed)
+                  → host:       OnClientConnectedChannel, HostMessage snapshot + capture{starting}, VisionScreenCapture.StartCapture() → frames → video track → capture{streaming}
+Button → RemoteCommand{requestId?} → CommandSendChannel → DataChannel → RemoteCommand.FromJson → CommandReceivedChannel → CommandProcessor → handler
+                                                                                                 └─ ack{requestId} → DataChannel → HostMessageReceivedChannel
+App state change → HostMessage.State(topic,value) → HostMessageSendChannel → VisionProWebRtcHost.TrySend → DataChannel → HostMessageReceivedChannel → UI
+Disconnect (either side / tab closed (beforeunload + pagehide) / Wi-Fi lost / ICE failed / pairing lease expired)
    host: stop capture, close peer, set-status available, stays registered
    controller: video cleared, UI back to device list, discovery keeps running, optional auto-reconnect (3 attempts)
 ```
@@ -181,7 +217,7 @@ Disconnect (either side / tab closed / Wi-Fi lost / ICE failed)
   Local-network access prompt (`NSLocalNetworkUsageDescription`) appears when WebRTC opens LAN sockets. No microphone/camera.
   Fully-immersive apps: capture is of the rendered frame buffer; passthrough is never included (this is the intended behaviour).
 * **Browser**: no permissions (receive-only). Video is `muted`, so autoplay is allowed; the page must be HTTPS when signaling is `wss://`.
-* **Signaling**: none. Add auth/origin checks before exposing it on the internet.
+* **Signaling**: shared token (`ROOM_TOKEN` ↔ `NetworkConfig.SignalingToken`, sent as `?token=`), `Origin` allowlist, Vercel Firewall rate limit. The token ships in the public WebGL build — it is obfuscation, not authentication.
 
 ## 8. Known limitations
 * One controller per host.
@@ -189,29 +225,33 @@ Disconnect (either side / tab closed / Wi-Fi lost / ICE failed)
 * ScreenCaptureKit backend requires visionOS 27 + Xcode 27 (beta at the time of writing); ReplayKit is deprecated in 27 but works.
 * `com.unity.webrtc` does not support visionOS — hence the native bridge and the external xcframework (SPM, network needed at first build).
 * The `LiveKitWebRTC` binary is not committed; the post-processor pins its version.
-* No TURN configured by default (STUN only): both peers need a routable path (same LAN or reachable NAT). Add `turn:` URLs to `NetworkConfig.IceServers` if needed.
-* Host → controller DataChannel messages are logged only (protocol is one-way for commands).
+* No TURN configured by default (STUN only): both peers need a routable path (same LAN or reachable NAT). 2.0 can express TURN with credentials (`NetworkConfig.IceServerEntries`) and the server can mint short-lived ones for the browser (`TURN_URLS`/`TURN_SECRET`); the Vision Pro still uses only its `NetworkConfig` entries (follow-up in REMOTE_CONTROLLER.md §3.2). A TURN server itself is not part of the repo.
+* Vercel Hobby closes every signaling socket after 300 s; handled transparently, but the Vision Pro drops anything it tries to send during its ~1 s reconnect gap (`VisionProSignalingClient.Send` has no outbound queue). ICE candidates generated exactly then are lost; negotiation retries cover it in practice.
+* Do not redeploy the signaling server during a presentation (old sockets stay on the old deployment until they close).
 * Native UDP discovery for the old path was never in the repository; the old scene still uses an IP field (`NativeControllerScene`).
 * WebGL `WebGLRemoteBridge` uses `makeDynCall` (Unity 6 documented pattern); requires the default (non-threaded) WebGL build.
 
 ## 9. Testing
 
 **Discovery** — run the server, play `VisionProHostScene` in the Editor (signaling client is pure C#): log shows `[Signaling] Registered as "Vision Pro"`,
-`curl http://localhost:8787/devices` lists it. Open the WebGL build: dropdown shows the name; stop the Editor → entry disappears after ~6 s.
+`curl http://localhost:8787/devices` lists it. Open the WebGL build: dropdown shows the name; stop the Editor → entry disappears after ~15 s (`NetworkConfig.DeviceTimeout`).
 
 **Commands** — on a real Vision Pro (or any visionOS build): Connect, press Red → host log `[DataChannel] Received: [set_color] target=demo_cube value=#FF0000`
 and `[OK] Executed 'set_color' on 'demo_cube'`, cube turns red. `CommandProcessor` is the stock one.
 
 **Video** — after Connect the host log shows `[ScreenCapture] ReplayKit startCapture…`, `[Video] Screen capture started — streaming.`;
-controller log shows `[Video] Started (1280,720)` and `[Video] Texture 1280x720 created.` Tick `Use Html Overlay` on `RemoteVideoView` to see the raw
+controller log shows `[DataChannel] Received: [capture] topic=capture value=streaming`, `[Video] Started (1280,720)` and `[Video] Texture 1280x720 created.` Tick `Use Html Overlay` on `RemoteVideoView` to see the raw
 `<video>` if the texture path misbehaves. `chrome://webrtc-internals` shows inbound-rtp frames.
 
 ## 10. Debugging / common errors
 | Symptom | Check |
 |---|---|
-| Device not in dropdown | Host log `[Signaling] Connected`? `curl /devices`. Same server URL on both sides? Heartbeat interval < `DEVICE_TIMEOUT`? |
+| Device not in dropdown | Host log `[Signaling] Connected`? `curl /api/devices?token=…`. Same server URL **and token** on both sides? Same room (`ROOM_TOKENS`)? Heartbeat interval < `Device Timeout`? |
+| `[Signaling] ERROR — server rejected the connection: unauthorized` / `origin-not-allowed` | `NetworkConfig.SignalingToken` ≠ server `ROOM_TOKEN`, or the page origin is missing from `ALLOWED_ORIGINS`. |
+| `Signaling reconnecting...` every 5 min | Normal on Vercel Hobby (300 s max duration). Session and list are unaffected; if they are, the server is not the 2.0 one. |
 | `Signaling offline — reconnecting...` | URL/port, TLS cert validity, mixed content (https page + `ws://` is blocked), firewall. |
-| `error: device-busy` | Another controller is paired; host `set-status available` happens after its disconnect. |
+| `error: device-busy` | Another controller holds the pairing lease; it is released by its explicit `disconnect` or expires 30 s after its last socket vanished. |
+| Host log `Peer disconnect … (controller-gone)` | The controller's pairing lease expired: tab killed without `disconnect`, or no instance refreshed it for 30 s. Expected; host is available again. |
 | ICE `failed` | No route between peers (different networks) → add TURN. Vision Pro denied Local Network permission → Settings ▸ Privacy ▸ Local Network. |
 | DataChannel never opens | Answer never arrived (host native bridge missing → `Native bridge unavailable` log; only device builds have WebRTC). |
 | Video track missing | Host log `capture-error`: `-5801` = consent declined, `-5803` = recording failed to start (retry after leaving/entering immersive space), `replaykit-unavailable` = another app records. |

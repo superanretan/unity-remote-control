@@ -26,7 +26,7 @@ void VPR_SetVideoConfig(int width, int height, int fps, int bitrateKbps);
 void VPR_SetCaptureBackend(int backend);          // 0 auto, 1 ReplayKit, 2 ScreenCaptureKit
 
 // ───────── peer ─────────
-int  VPR_CreatePeer(const char *iceServersJson);  // JSON array of "stun:..." / "turn:..." strings
+int  VPR_CreatePeer(const char *iceServersJson);  // JSON array of RTCIceServer objects {urls[],username?,credential?} (or legacy URL strings)
 void VPR_HandleRemoteOffer(const char *sdp);      // → emits "answer"
 void VPR_AddIceCandidate(const char *candidate, const char *sdpMid, int sdpMLineIndex);
 int  VPR_SendData(const char *message);           // host → controller text over the DataChannel

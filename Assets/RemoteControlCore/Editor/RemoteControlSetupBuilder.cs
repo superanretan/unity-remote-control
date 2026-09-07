@@ -21,17 +21,25 @@ namespace SuperAnretan.RemoteControl.Editor
     /// </summary>
     public static class RemoteControlSetupBuilder
     {
-        private const string SoDir = "Assets/RemoteControlCore/Runtime/DefaultSetup/SO/";
-        private const string PrefabDir = "Assets/RemoteControlCore/Runtime/DefaultSetup/Prefabs/";
-        private const string ScenesDir = "Assets/Scenes/";
+        // Paths inside this repository, used when the package sits under Assets/ (development / embedded).
+        private const string EmbeddedSoDir = "Assets/RemoteControlCore/Runtime/DefaultSetup/SO/";
+        private const string EmbeddedPrefabDir = "Assets/RemoteControlCore/Runtime/DefaultSetup/Prefabs/";
 
-        private const string WebGLClientPrefabPath = PrefabDir + "RemoteControl_WebGLClientCore.prefab";
-        private const string VisionProHostPrefabPath = PrefabDir + "RemoteControl_VisionProHost.prefab";
-        private const string DiscoveryPanelPrefabPath = PrefabDir + "NetworkDiscoveryPanel.prefab";
+        // Where a consuming project gets its own copies. A package installed from a Git URL lives in
+        // Library/PackageCache and is READ-ONLY, so assets must be created in the consumer's own Assets/.
+        private const string ConsumerRoot = "Assets/RemoteControl/";
 
-        private const string ControllerScenePath = ScenesDir + "ControllerScene.unity";
-        private const string NativeControllerScenePath = ScenesDir + "NativeControllerScene.unity";
-        private const string VisionProHostScenePath = ScenesDir + "VisionProHostScene.unity";
+        private static string SoDir => Directory.Exists(EmbeddedSoDir) ? EmbeddedSoDir : ConsumerRoot + "SO/";
+        private static string PrefabDir => Directory.Exists(EmbeddedPrefabDir) ? EmbeddedPrefabDir : ConsumerRoot + "Prefabs/";
+        private static string ScenesDir => "Assets/Scenes/";
+
+        private static string WebGLClientPrefabPath => PrefabDir + "RemoteControl_WebGLClientCore.prefab";
+        private static string VisionProHostPrefabPath => PrefabDir + "RemoteControl_VisionProHost.prefab";
+        private static string DiscoveryPanelPrefabPath => PrefabDir + "NetworkDiscoveryPanel.prefab";
+
+        private static string ControllerScenePath => ScenesDir + "ControllerScene.unity";
+        private static string NativeControllerScenePath => ScenesDir + "NativeControllerScene.unity";
+        private static string VisionProHostScenePath => ScenesDir + "VisionProHostScene.unity";
 
         // ───────── menu ─────────
 
@@ -47,6 +55,7 @@ namespace SuperAnretan.RemoteControl.Editor
         [MenuItem("Tools/Remote Control/WebRTC/Create Prefabs", priority = 10)]
         public static void CreatePrefabs()
         {
+            EnsureAllSoAssets();
             EnsureNetworkConfigSaved();
             CreateWebGLClientPrefab();
             CreateDiscoveryPanelPrefab();
@@ -67,6 +76,7 @@ namespace SuperAnretan.RemoteControl.Editor
                 Debug.Log($"[RemoteControl] Preserved native controller scene as {NativeControllerScenePath}");
             }
 
+            Directory.CreateDirectory(ScenesDir);
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
             var cam = CreateCamera(new Color(0.09f, 0.10f, 0.12f));
@@ -92,6 +102,7 @@ namespace SuperAnretan.RemoteControl.Editor
         {
             if (!File.Exists(VisionProHostPrefabPath)) CreatePrefabs();
 
+            Directory.CreateDirectory(ScenesDir);
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
             var cam = CreateCamera(new Color(0.12f, 0.14f, 0.18f));
@@ -161,6 +172,7 @@ namespace SuperAnretan.RemoteControl.Editor
                 SetField(transport, "_disconnectRequestChannel", LoadSo("DisconnectRequestChannel"));
                 SetField(transport, "_onConnectedChannel", LoadSo("OnConnectedChannel"));
                 SetField(transport, "_onDisconnectedChannel", LoadSo("OnDisconnectedChannel"));
+                SetField(transport, "_hostMessageReceivedChannel", LoadSo("HostMessageReceivedChannel"));
                 SetField(transport, "_logChannel", LoadSo("LogChannel"));
 
                 SavePrefab(root, WebGLClientPrefabPath);
@@ -183,6 +195,7 @@ namespace SuperAnretan.RemoteControl.Editor
                 SetField(host, "_commandReceivedChannel", LoadSo("CommandReceivedChannel"));
                 SetField(host, "_onClientConnectedChannel", LoadSo("OnClientConnectedChannel"));
                 SetField(host, "_onClientDisconnectedChannel", LoadSo("OnClientDisconnectedChannel"));
+                SetField(host, "_hostMessageSendChannel", LoadSo("HostMessageSendChannel"));
                 SetField(host, "_logChannel", LoadSo("LogChannel"));
 
                 var processor = root.AddComponent<CommandProcessor>();
@@ -432,6 +445,48 @@ namespace SuperAnretan.RemoteControl.Editor
         {
             var so = AssetDatabase.LoadAssetAtPath<ScriptableObject>(SoDir + name + ".asset");
             if (so == null) Debug.LogError($"[RemoteControl] Missing SO asset: {SoDir}{name}.asset");
+            return so;
+        }
+
+        /// <summary>
+        /// Creates every ScriptableObject the prefabs need, if it is missing. This is what makes the menu work in a
+        /// project that consumes the package from a Git URL: the package's own assets are read-only, so a full set is
+        /// generated under <see cref="ConsumerRoot"/> instead. Existing assets are never touched.
+        /// </summary>
+        [MenuItem("Tools/Remote Control/WebRTC/Create SO Assets", priority = 9)]
+        public static void EnsureAllSoAssets()
+        {
+            Directory.CreateDirectory(SoDir);
+            AssetDatabase.Refresh();
+
+            EnsureAsset<NetworkConfig>("NetworkConfig");
+            EnsureAsset<CommandEventChannel>("CommandSendChannel");
+            EnsureAsset<CommandEventChannel>("CommandReceivedChannel");
+            EnsureAsset<StringEventChannel>("ConnectRequestChannel");
+            EnsureAsset<VoidEventChannel>("DisconnectRequestChannel");
+            EnsureAsset<VoidEventChannel>("OnConnectedChannel");
+            EnsureAsset<VoidEventChannel>("OnDisconnectedChannel");
+            EnsureAsset<VoidEventChannel>("OnClientConnectedChannel");
+            EnsureAsset<VoidEventChannel>("OnClientDisconnectedChannel");
+            EnsureAsset<StringEventChannel>("LogChannel");
+            EnsureAsset<StringEventChannel>("HostMessageSendChannel");
+            EnsureAsset<StringEventChannel>("HostMessageReceivedChannel");
+            EnsureAsset<CommandHandlerRegistry>("HandlerRegistry");
+            EnsureAsset<CommandTargetRegistry>("TargetRegistry");
+
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[RemoteControl] ScriptableObject assets ready in {SoDir}");
+        }
+
+        private static T EnsureAsset<T>(string name) where T : ScriptableObject
+        {
+            string path = SoDir + name + ".asset";
+            var existing = AssetDatabase.LoadAssetAtPath<T>(path);
+            if (existing != null) return existing;
+
+            var so = ScriptableObject.CreateInstance<T>();
+            AssetDatabase.CreateAsset(so, path);
+            Debug.Log($"[RemoteControl] Created {path}");
             return so;
         }
 

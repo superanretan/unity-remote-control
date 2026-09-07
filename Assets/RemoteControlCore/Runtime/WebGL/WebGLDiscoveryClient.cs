@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
@@ -7,11 +8,15 @@ namespace SuperAnretan.RemoteControl
     /// browser) it keeps a WebSocket to the signaling server and mirrors the server's
     /// "device-list" pushes into <see cref="RemoteDiscoveryBase.Devices"/>.
     /// Hosts that stop heart-beating are pruned server-side and disappear from the list.
+    ///
+    /// The signaling socket is force-closed by Vercel every ≤300 s; the .jslib reconnects with the same
+    /// clientId and the server keeps the registry, so the list — and any WebRTC session — is unaffected.
+    /// Identical consecutive lists are ignored so the dropdown never rebuilds (or closes) for nothing.
     /// </summary>
     public class WebGLDiscoveryClient : RemoteDiscoveryBase
     {
         [Header("Config")]
-        [Tooltip("Signaling server URL is read from NetworkConfig.SignalingServerUrl.")]
+        [Tooltip("Signaling server URL (+ token) is read from NetworkConfig.")]
         [SerializeField] private NetworkConfig _networkConfig;
 
         [Tooltip("Ask the server for the device list at this interval as a safety net (seconds). 0 = pushes only.")]
@@ -43,7 +48,7 @@ namespace SuperAnretan.RemoteControl
 
             SetStatus("Connecting to signaling...");
             Log($"[Signaling] Connecting to {_networkConfig.SignalingServerUrl}");
-            WebGLRemoteBridge.ConnectSignaling(_networkConfig.SignalingServerUrl);
+            WebGLRemoteBridge.ConnectSignaling(_networkConfig.SignalingConnectUrl);
         }
 
         private void OnDisable()
@@ -86,15 +91,27 @@ namespace SuperAnretan.RemoteControl
 
                 case "signaling-closed":
                     _signalingOpen = false;
-                    SetDevices(null);
-                    SetStatus("Signaling offline — reconnecting...");
+                    // Keep the last known list: the socket drop is routine (Vercel max duration) and the
+                    // server still has the registry. A really vanished host disappears on the next list.
+                    SetStatus(_devices.Count > 0 ? "Signaling reconnecting..." : "Signaling offline — reconnecting...");
                     Log($"[Signaling] Disconnected ({payload}).");
+                    break;
+
+                case "signaling-rejected":
+                    _signalingOpen = false;
+                    SetDevices(null);
+                    SetStatus("Signaling rejected: " + payload);
+                    Log(payload == "unauthorized"
+                        ? "[Signaling] ERROR — server rejected the connection: unauthorized. Check NetworkConfig.SignalingToken against the server's ROOM_TOKEN."
+                        : $"[Signaling] ERROR — server rejected the connection: {payload}");
                     break;
 
                 case "device-list":
                     var list = JsonUtility.FromJson<DiscoveredDeviceList>(payload);
+                    var incoming = list?.devices ?? System.Array.Empty<DiscoveredDevice>();
+                    if (SameList(_devices, incoming)) break;          // no churn → no dropdown rebuild
                     int before = _devices.Count;
-                    SetDevices(list?.devices);
+                    SetDevices(incoming);
                     if (_devices.Count != before)
                         Log($"[Discovery] {_devices.Count} host(s) available.");
                     foreach (var d in _devices)
@@ -108,6 +125,19 @@ namespace SuperAnretan.RemoteControl
             }
         }
 
-        private readonly System.Collections.Generic.HashSet<string> KnownIds = new();
+        private static bool SameList(List<DiscoveredDevice> current, DiscoveredDevice[] incoming)
+        {
+            if (current.Count != incoming.Length) return false;
+            for (int i = 0; i < incoming.Length; i++)
+            {
+                var a = current[i]; var b = incoming[i];
+                if (a == null || b == null) return false;
+                if (a.deviceId != b.deviceId || a.deviceName != b.deviceName || a.platform != b.platform || a.status != b.status || a.address != b.address)
+                    return false;
+            }
+            return true;
+        }
+
+        private readonly HashSet<string> KnownIds = new();
     }
 }

@@ -1,7 +1,10 @@
 # Setup hosta i klienta — przyciski, komendy, sceny
 
 Ten dokument opisuje **jak dziś działa wysyłanie komend z przycisków** i **jak od zera skonfigurować hosta i klienta** (natywnego i WebGL).
-Architektura sieciowa WebGL ↔ Vision Pro jest opisana w [WEBGL_VISIONOS_REMOTE.md](WEBGL_VISIONOS_REMOTE.md).
+Architektura sieciowa WebGL ↔ Vision Pro jest opisana w [WEBGL_VISIONOS_REMOTE.md](WEBGL_VISIONOS_REMOTE.md),
+zmiany 2.0 (kanał powrotny host → kontroler, token signalingu, TURN, Vercel) — w [REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.md).
+Używasz paczki w osobnym projekcie i piszesz własne UI kontrolera? Zacznij od [INTEGRATION.md](INTEGRATION.md) —
+tam jest wdrożenie serwera na Vercelu, instalacja paczki, generowanie assetów SO i build WebGL.
 
 ---
 
@@ -35,7 +38,7 @@ CommandSendChannel.Raise(cmd)           (ScriptableObject event channel)
 Na drucie leci zawsze ten sam JSON (`RemoteCommand.ToJson()`), niezależnie od transportu:
 
 ```json
-{"commandType":"set_color","targetId":"demo_cube","value":"#FF0000","payload":""}
+{"commandType":"set_color","targetId":"demo_cube","value":"#FF0000","payload":"","requestId":""}
 ```
 
 | Pole | Znaczenie |
@@ -44,6 +47,9 @@ Na drucie leci zawsze ten sam JSON (`RemoteCommand.ToJson()`), niezależnie od t
 | `targetId` | `CommandTarget.TargetId` obiektu w scenie hosta |
 | `value` | wartość główna (interpretuje ją handler) |
 | `payload` | opcjonalny dodatkowy JSON |
+| `requestId` | opcjonalne (2.0): gdy niepuste, host WebRTC odpowiada `HostMessage{messageType:"ack", requestId}` |
+
+W drugą stronę (tylko WebRTC, 2.0) host wysyła `HostMessage` — `{"messageType":"state","schemaVersion":1,"topic":"navigation","value":"compartment-a","payload":"","requestId":""}` — patrz [REMOTE_CONTROLLER.md §1](REMOTE_CONTROLLER.md).
 
 ### Co jest w scenie kontrolera dziś
 
@@ -138,13 +144,15 @@ Wszystko leży w `Assets/RemoteControlCore/Runtime/DefaultSetup/SO/` i jest już
 
 | Asset | Typ | Rola |
 |---|---|---|
-| `NetworkConfig` | `NetworkConfig` | port UDP, **Signaling Server Url**, **Device Name**, parametry video |
+| `NetworkConfig` | `NetworkConfig` | port UDP, **Signaling Server Url**, **Signaling Token**, **Device Name**, **Device Timeout** (15 s), **Ice Server Entries** (STUN/TURN + credentiale), parametry video |
 | `CommandSendChannel` | `CommandEventChannel` | UI → transport (kontroler) |
 | `CommandReceivedChannel` | `CommandEventChannel` | transport → `CommandProcessor` (host) |
 | `ConnectRequestChannel` | `StringEventChannel` | UI → transport: IP (natywny) lub deviceId (WebGL) |
 | `DisconnectRequestChannel` | `VoidEventChannel` | UI → transport |
 | `OnConnectedChannel` / `OnDisconnectedChannel` | `VoidEventChannel` | transport → UI (kontroler) |
 | `OnClientConnectedChannel` / `OnClientDisconnectedChannel` | `VoidEventChannel` | transport → logika (host) |
+| `HostMessageSendChannel` | `StringEventChannel` | logika hosta → `VisionProWebRtcHost` → DataChannel (JSON `HostMessage`, 2.0) |
+| `HostMessageReceivedChannel` | `StringEventChannel` | `WebGLRemoteTransport` → UI kontrolera (JSON `HostMessage`, 2.0) |
 | `HandlerRegistry` / `TargetRegistry` | registry | rejestry runtime |
 | `LogChannel` | `StringEventChannel` | logi → `DebugLogUI` |
 
@@ -158,13 +166,20 @@ Nowe assety: **Create ▸ Remote Control ▸ …** (Config / Events / Registries
 
 1. Otwórz swoją scenę (lub `Assets/Scenes/VisionProHostScene.unity` jako przykład).
 2. Przeciągnij prefab **`RemoteControl_VisionProHost`** (`Runtime/DefaultSetup/Prefabs/`). Zawiera:
-   `VisionProSignalingClient` (rejestracja + heartbeat), `VisionProWebRtcHost` (WebRTC, DataChannel → `CommandReceivedChannel`, start/stop capture), `CommandProcessor`.
-3. W `NetworkConfig.asset` ustaw `Signaling Server Url` (`wss://…`, lokalnie `ws://<ip-pc>:8787`) i `Device Name` (np. `Vision Pro Office`). Nazwę można też nadpisać na instancji w polu `Device Name Override` na `VisionProSignalingClient`.
+   `VisionProSignalingClient` (rejestracja + heartbeat + reconnect), `VisionProWebRtcHost` (WebRTC, DataChannel → `CommandReceivedChannel`, start/stop capture, kanał powrotny `HostMessageSendChannel`), `CommandProcessor`.
+3. W `NetworkConfig.asset` ustaw:
+   - `Signaling Server Url` — **Vercel:** `wss://<projekt>.vercel.app/api/signaling`; lokalnie `ws://<ip-pc>:8787`. Pole zserializowane to nadal `_signalingServerUrl` (override z `remotecontrol.json` działa bez zmian).
+   - `Signaling Token` — wartość `ROOM_TOKEN` z serwera (doklejana jako `?token=…`). Puste = serwer w trybie otwartym.
+   - `Device Name` (np. `Vision Pro Office`; można nadpisać na instancji w `Device Name Override` na `VisionProSignalingClient`).
+   - `Device Timeout` = **15** (host wysyła tę wartość do serwera w `register-device`; musi być większa niż przerwa na reconnect po wymuszonym zamknięciu socketa na Vercelu, 1–10 s).
+   - `Ice Server Entries` — domyślnie jeden STUN. TURN: dodaj wpis z `urls` + `username` + `credential` (uwaga: trafiają do buildu; lepiej krótkożyciowe credentiale z serwera — REMOTE_CONTROLLER.md §3).
 4. Dodaj `CommandTarget` + handlery jak w §3.
-5. (Opcjonalnie) Canvas z `TextMeshProUGUI` + `DebugLogUI` (`Log Channel` → `LogChannel.asset`) — podgląd logów `[Signaling] [WebRTC] [DataChannel] [ScreenCapture]` na urządzeniu.
-6. Build visionOS na Macu — post‑procesor sam dodaje pakiet WebRTC, ReplayKit i wpisy Info.plist (szczegóły: WEBGL_VISIONOS_REMOTE.md §4).
+5. (2.0) **Stan zwrotny do kontrolera:** w swojej logice podnoś `HostMessage.State(topic, value).ToJson()` na `HostMessageSendChannel.asset` (albo wołaj `VisionProWebRtcHost.SetState`). Host cache'uje ostatnią wartość per temat i po otwarciu DataChannelu wysyła pełny snapshot, potem zmiany. Stan capture (`starting/streaming/stopped/error`) i `ack` na komendy z `requestId` idą automatycznie. Nie wołaj `VisionProNativeBridge` bezpośrednio.
+6. (Opcjonalnie) Canvas z `TextMeshProUGUI` + `DebugLogUI` (`Log Channel` → `LogChannel.asset`) — podgląd logów `[Signaling] [WebRTC] [DataChannel] [ScreenCapture]` na urządzeniu. Odrzucenie przez serwer (`unauthorized`) jest tam widoczne.
+7. Build visionOS na Macu — post‑procesor sam dodaje pakiet WebRTC, ReplayKit i wpisy Info.plist (szczegóły: WEBGL_VISIONOS_REMOTE.md §4).
 
-Przepływ: start → rejestracja w signalingu → widoczny na liście → controller klika Connect → DataChannel open → `OnClientConnectedChannel` + start capture → komendy trafiają do `CommandProcessor` → disconnect: stop capture, host nadal widoczny na liście.
+Przepływ: start → rejestracja w signalingu (`?token=…`) → widoczny na liście → controller klika Connect → DataChannel open → `OnClientConnectedChannel` + snapshot `HostMessage` + start capture (`capture: starting → streaming`) → komendy trafiają do `CommandProcessor` (+ `ack`) → disconnect: stop capture, host nadal widoczny na liście.
+Zerwanie socketa signalingu (co ≤300 s na Vercelu) jest przejrzyste: klient łączy się ponownie z tym samym `deviceId`, sesja WebRTC trwa.
 
 ### 5b. Host natywny (Unity Transport, bez zmian)
 
@@ -178,11 +193,14 @@ Przepływ: start → rejestracja w signalingu → widoczny na liście → contro
 ### 6a. WebGL (przeglądarka → Vision Pro)
 
 1. Scena: `Assets/Scenes/ControllerScene.unity` (można odtworzyć: **Tools ▸ Remote Control ▸ WebRTC ▸ Build WebGL Controller Scene**). Zawiera:
-   - **`RemoteControl_WebGLClientCore`** — `WebGLDiscoveryClient` (lista urządzeń z signalingu) + `WebGLRemoteTransport` (WebRTC DataChannel; nasłuchuje `CommandSendChannel`, `ConnectRequestChannel`, `DisconnectRequestChannel`, podnosi `OnConnected/OnDisconnected`).
+   - **`RemoteControl_WebGLClientCore`** — `WebGLDiscoveryClient` (lista urządzeń z signalingu) + `WebGLRemoteTransport` (WebRTC DataChannel; nasłuchuje `CommandSendChannel`, `ConnectRequestChannel`, `DisconnectRequestChannel`, podnosi `OnConnected/OnDisconnected` oraz **`HostMessageReceivedChannel`** z każdą wiadomością zwrotną hosta).
    - **`NetworkDiscoveryPanel`** (pod Canvasem) — dropdown, Refresh, Connect, Disconnect, status, `ConnectedGroup` (RawImage + `RemoteVideoView`, przyciski R/G/B + `DemoControllerUI`), log (`DebugLogUI`). `DiscoveryBinder` sam znajduje `WebGLDiscoveryClient` w scenie.
-2. `NetworkConfig.Signaling Server Url` = ten sam co host (strona po HTTPS ⇒ `wss://`).
+2. `NetworkConfig.Signaling Server Url` = ten sam co host (**Vercel:** `wss://<projekt>.vercel.app/api/signaling`; strona po HTTPS ⇒ `wss://`), `Signaling Token` = ten sam `ROOM_TOKEN`. Domena, na której hostujesz build, musi być w `ALLOWED_ORIGINS` serwera.
 3. Własne przyciski: §2 (najprościej `CommandButton` pod `ConnectedGroup/ControlButtons`; przy większej liczbie dodaj `HorizontalLayoutGroup`).
-4. Build: Build Profiles ▸ Web, tylko `ControllerScene`; hostuj po HTTPS. Pliki `.br` wymagają nagłówka `Content-Encoding: br` (albo wyłącz kompresję w Player Settings).
+4. (2.0) **Reakcja na stan hosta:** zasubskrybuj `HostMessageReceivedChannel.asset` (`StringEventChannel`), parsuj `HostMessage.FromJson(json)`: `IsSnapshot` → `SnapshotEntries()`, `IsState` → `topic/value` (np. podświetl aktywny compartment), `IsCapture` → `value` = `starting/streaming/stopped/error` (czy obraz faktycznie leci), `IsAck` → `requestId`. Chcesz `ack` na każdą komendę — włącz `Auto Request Id` na `WebGLRemoteTransport` albo ustaw `command.requestId` sam.
+5. Build: Build Profiles ▸ Web, tylko `ControllerScene`; hostuj po HTTPS (Vercel). Pliki `.br` wymagają nagłówka `Content-Encoding: br` (albo wyłącz kompresję w Player Settings).
+
+Przeglądarka trzyma stabilny `clientId` w `sessionStorage` (F5 zachowuje sesję parowania; zduplikowana karta dostaje nowy id przez Web Locks). Zerwanie socketa signalingu co ≤300 s (Vercel) nie rusza sesji WebRTC ani listy urządzeń. Zamknięcie karty wysyła `disconnect` (`beforeunload` + `pagehide`), a Vision Pro przestaje nagrywać w ciągu kilku sekund.
 
 Po stronie WebGL **nie dodawaj** `RemoteControl_ClientCore` (Unity Transport UDP nie działa w przeglądarce).
 
@@ -198,9 +216,9 @@ Po stronie WebGL **nie dodawaj** `RemoteControl_ClientCore` (Unity Transport UDP
 
 ## 7. Szybki test
 
-1. `cd SignalingServer && npm install && npm start`
-2. Editor: otwórz `VisionProHostScene` → Play (host rejestruje się; w Editorze **nie odpowie na offer** — brak natywnego WebRTC, to normalne). `curl http://localhost:8787/devices` pokazuje urządzenie.
+1. `cd SignalingServer && npm install && npm start` (lokalnie bez Redisa; produkcja = Vercel, patrz `SignalingServer/README.md` §2). `NetworkConfig.Signaling Token` puste, gdy serwer nie ma `ROOM_TOKEN`.
+2. Editor: otwórz `VisionProHostScene` → Play (host rejestruje się; w Editorze **nie odpowie na offer** — brak natywnego WebRTC, to normalne). `curl http://localhost:8787/devices` pokazuje urządzenie; znika ~15 s po zatrzymaniu Play.
 3. Build WebGL → otwórz stronę → dropdown pokazuje hosta → Connect.
-4. Na prawdziwym Vision Pro: po Connect pojawia się UI sterowania i video; Red → log hosta `[DataChannel] Received: [set_color] target=demo_cube value=#FF0000` → `[OK] Executed 'set_color' on 'demo_cube'` → kostka czerwona.
+4. Na prawdziwym Vision Pro: po Connect pojawia się UI sterowania i video; log kontrolera pokazuje `[DataChannel] Snapshot received (…)` i `[DataChannel] Received: [capture] topic=capture value=streaming`; Red → log hosta `[DataChannel] Received: [set_color] target=demo_cube value=#FF0000` → `[OK] Executed 'set_color' on 'demo_cube'` → kostka czerwona.
 
 Debug: prefiksy logów `[Discovery] [Signaling] [WebRTC] [Video] [DataChannel] [ScreenCapture]`; tabela typowych błędów w WEBGL_VISIONOS_REMOTE.md §10.

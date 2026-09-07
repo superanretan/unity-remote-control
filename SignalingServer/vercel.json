@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "fluid": true,
+  "regions": ["fra1"],
+  "functions": {
+    "api/signaling.js": { "maxDuration": 300 },
+    "api/devices.js": { "maxDuration": 10 }
+  },
+  "rewrites": [
+    { "source": "/devices", "destination": "/api/devices" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "cache-control", "value": "no-store" },
+        { "key": "x-content-type-options", "value": "nosniff" }
+      ]
+    }
+  ]
+}

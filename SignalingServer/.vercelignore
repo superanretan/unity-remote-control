@@ -1,0 +1,11 @@
+# Kept out of the Vercel upload.
+#
+# server.js is the local dev entry point and it calls server.listen() at module scope. Vercel's zero-config
+# Node detection treats a root-level `server.js` as THE server entrypoint and routes every request to it,
+# which would bypass api/signaling.js and the per-function maxDuration in vercel.json. It must not be uploaded.
+server.js
+
+# Local-only.
+test/
+node_modules/
+README.md

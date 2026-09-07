@@ -60,7 +60,7 @@ void VPR_GetVideoConfig(int *width, int *height, int *fps)
 @property (atomic, assign) BOOL remoteDescriptionSet;
 @property (nonatomic, strong) NSMutableArray<RC_RTC(IceCandidate) *> *pendingCandidates;
 @property (atomic, assign) int64_t lastFrameNs;
-- (BOOL)createPeerWithIceServers:(NSArray<NSString *> *)urls;
+- (BOOL)createPeerWithIceServers:(NSArray<RC_RTC(IceServer) *> *)iceServers;
 - (void)handleRemoteOffer:(NSString *)sdp;
 - (void)addIceCandidate:(NSString *)candidate sdpMid:(NSString *)sdpMid sdpMLineIndex:(int)index;
 - (void)applyIceCandidate:(RC_RTC(IceCandidate) *)ice toPeer:(RC_RTC(PeerConnection) *)pc;
@@ -106,15 +106,16 @@ static NSString *RCConnectionStateName(RTCPeerConnectionState state)
     return self;
 }
 
-- (BOOL)createPeerWithIceServers:(NSArray<NSString *> *)urls
+- (BOOL)createPeerWithIceServers:(NSArray<RC_RTC(IceServer) *> *)iceServers
 {
     [self close];
 
     RC_RTC(Configuration) *config = [[RC_RTC(Configuration) alloc] init];
     config.sdpSemantics = RTCSdpSemanticsUnifiedPlan;
     config.continualGatheringPolicy = RTCContinualGatheringPolicyGatherContinually;
-    if (urls.count > 0) {
-        config.iceServers = @[[[RC_RTC(IceServer) alloc] initWithURLStrings:urls]];
+    if (iceServers.count > 0) {
+        // One RTCIceServer per NetworkConfig entry — TURN entries carry their own username/credential.
+        config.iceServers = iceServers;
     }
 
     RC_RTC(MediaConstraints) *constraints =
@@ -378,23 +379,51 @@ void VPR_SetVideoConfig(int width, int height, int fps, int bitrateKbps)
     g_videoBitrateKbps = bitrateKbps > 0 ? bitrateKbps : 2500;
 }
 
+// Parses NetworkConfig.IceServersJson():
+//   2.x: [{"urls":["stun:..."]},{"urls":["turn:host:3478?transport=udp"],"username":"u","credential":"c"}]
+//   1.x: ["stun:...", "turn:..."]   (still accepted; no credentials)
+static NSArray<RC_RTC(IceServer) *> *RCParseIceServers(const char *iceServersJson)
+{
+    NSMutableArray<RC_RTC(IceServer) *> *servers = [NSMutableArray array];
+    if (!iceServersJson) return servers;
+    NSString *jsonString = [NSString stringWithUTF8String:iceServersJson];
+    NSData *data = [jsonString dataUsingEncoding:NSUTF8StringEncoding];
+    id parsed = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![parsed isKindOfClass:[NSArray class]]) return servers;
+
+    for (id item in (NSArray *)parsed) {
+        if ([item isKindOfClass:[NSString class]]) {
+            if ([item length]) [servers addObject:[[RC_RTC(IceServer) alloc] initWithURLStrings:@[item]]];
+            continue;
+        }
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        NSDictionary *entry = (NSDictionary *)item;
+
+        NSMutableArray<NSString *> *urls = [NSMutableArray array];
+        id rawUrls = entry[@"urls"];
+        if ([rawUrls isKindOfClass:[NSString class]] && [rawUrls length]) [urls addObject:rawUrls];
+        else if ([rawUrls isKindOfClass:[NSArray class]])
+            for (id u in (NSArray *)rawUrls) if ([u isKindOfClass:[NSString class]] && [u length]) [urls addObject:u];
+        if (urls.count == 0) continue;
+
+        NSString *username = [entry[@"username"] isKindOfClass:[NSString class]] ? entry[@"username"] : @"";
+        NSString *credential = [entry[@"credential"] isKindOfClass:[NSString class]] ? entry[@"credential"] : @"";
+        if (username.length > 0 || credential.length > 0)
+            [servers addObject:[[RC_RTC(IceServer) alloc] initWithURLStrings:urls username:username credential:credential]];
+        else
+            [servers addObject:[[RC_RTC(IceServer) alloc] initWithURLStrings:urls]];
+    }
+    return servers;
+}
+
 int VPR_CreatePeer(const char *iceServersJson)
 {
     if (!g_lock) g_lock = [[NSObject alloc] init];
-    NSArray<NSString *> *urls = @[];
-    if (iceServersJson) {
-        NSData *data = [[NSString stringWithUTF8String:iceServersJson] dataUsingEncoding:NSUTF8StringEncoding];
-        id parsed = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        if ([parsed isKindOfClass:[NSArray class]]) {
-            NSMutableArray *list = [NSMutableArray array];
-            for (id item in (NSArray *)parsed) if ([item isKindOfClass:[NSString class]] && [item length]) [list addObject:item];
-            urls = list;
-        }
-    }
+    NSArray<RC_RTC(IceServer) *> *iceServers = RCParseIceServers(iceServersJson);
 
     @synchronized (g_lock) {
         if (!g_host) g_host = [[RCPeerHost alloc] init];
-        return [g_host createPeerWithIceServers:urls] ? 1 : 0;
+        return [g_host createPeerWithIceServers:iceServers] ? 1 : 0;
     }
 }
 

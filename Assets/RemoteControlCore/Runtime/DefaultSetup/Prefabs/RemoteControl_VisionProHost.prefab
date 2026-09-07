@@ -67,8 +67,11 @@ MonoBehaviour:
   _commandReceivedChannel: {fileID: 11400000, guid: 5b8fd39c24034b04fbfb1b4a6fb1de32, type: 2}
   _onClientConnectedChannel: {fileID: 11400000, guid: 22bbe465241d241418926c999b0d6fa1, type: 2}
   _onClientDisconnectedChannel: {fileID: 11400000, guid: c618ec26f1162ba48a7a6e0a205b12c8, type: 2}
+  _hostMessageSendChannel: {fileID: 11400000, guid: 7a3f1c2e9b4d4e8f8a1b2c3d4e5f6071, type: 2}
   _captureBackend: 0
   _autoStartCapture: 1
+  _sendSnapshotOnConnect: 1
+  _ackCommands: 1
   _connectTimeout: 20
   _disconnectedGrace: 5
   _maxCommandBytes: 65536

@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 
@@ -9,6 +10,10 @@ namespace SuperAnretan.RemoteControl
     /// but the connect payload is a signaling <c>deviceId</c> and commands travel over an
     /// RTCDataChannel opened by <c>WebGLRemoteBridge.jslib</c>.
     /// UI code keeps calling <c>commandSendChannel.Raise(command)</c> and never sees WebRTC.
+    ///
+    /// Return channel: every text message the host sends over the DataChannel is raised verbatim on
+    /// <c>HostMessageReceivedChannel</c> (a <see cref="StringEventChannel"/>). UI code parses it with
+    /// <see cref="HostMessage.FromJson"/> and reacts (highlight the active compartment, show capture state, match acks).
     /// </summary>
     public class WebGLRemoteTransport : MonoBehaviour
     {
@@ -29,6 +34,13 @@ namespace SuperAnretan.RemoteControl
         [SerializeField] private VoidEventChannel _onConnectedChannel;
         [SerializeField] private VoidEventChannel _onDisconnectedChannel;
 
+        [Tooltip("Raised with the raw HostMessage JSON for every message the host sends back over the DataChannel.")]
+        [SerializeField] private StringEventChannel _hostMessageReceivedChannel;
+
+        [Header("Commands")]
+        [Tooltip("Stamp every outgoing command that has no requestId with a fresh one, so the host answers each with an 'ack' HostMessage.")]
+        [SerializeField] private bool _autoRequestId = false;
+
         [Header("Reconnect")]
         [Tooltip("Retry the last device after an unexpected drop (ICE failure, host Wi-Fi hiccup).")]
         [SerializeField] private bool _autoReconnect = true;
@@ -44,8 +56,12 @@ namespace SuperAnretan.RemoteControl
         private bool _userRequestedDisconnect;
         private int _reconnectAttempts;
         private Coroutine _reconnectRoutine;
+        private uint _requestCounter;
 
         public bool IsConnected => _isConnected;
+
+        /// <summary>Typed convenience over <c>HostMessageReceivedChannel</c> for code that prefers C# events.</summary>
+        public event Action<HostMessage> OnHostMessage;
 
         private void OnEnable()
         {
@@ -133,12 +149,18 @@ namespace SuperAnretan.RemoteControl
                 return;
             }
 
+            if (_autoRequestId && string.IsNullOrEmpty(command.requestId))
+                command.requestId = NextRequestId();
+
             // Same JSON as the Unity Transport path — the host parses it with RemoteCommand.FromJson.
             if (WebGLRemoteBridge.SendData(command.ToJson()))
                 Log($"[DataChannel] Sent: {command}");
             else
                 Log("[DataChannel] Send failed — channel not open.");
         }
+
+        /// <summary>Fresh correlation id for <see cref="RemoteCommand.requestId"/>.</summary>
+        public string NextRequestId() => $"r{++_requestCounter}-{Time.frameCount}";
 
         // ───────── Bridge events ─────────
 
@@ -180,10 +202,24 @@ namespace SuperAnretan.RemoteControl
                     break;
 
                 case "datachannel-message":
-                    // Host → controller messages are not part of the protocol yet; log for visibility.
-                    Log($"[DataChannel] Received: {payload}");
+                    OnDataChannelMessage(payload);
                     break;
             }
+        }
+
+        private void OnDataChannelMessage(string json)
+        {
+            _hostMessageReceivedChannel?.Raise(json);
+
+            var msg = HostMessage.FromJson(json);
+            if (msg == null)
+            {
+                Log($"[DataChannel] Received (unrecognised): {json}");
+                return;
+            }
+            if (msg.IsSnapshot) Log($"[DataChannel] Snapshot received ({msg.SnapshotEntries().Count} topics).");
+            else Log($"[DataChannel] Received: {msg}");
+            OnHostMessage?.Invoke(msg);
         }
 
         private static bool ShouldRetry(string reason)

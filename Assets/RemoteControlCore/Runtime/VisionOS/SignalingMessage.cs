@@ -21,6 +21,8 @@ namespace SuperAnretan.RemoteControl
         public string deviceName;
         public string platform;
         public string status;
+        /// <summary>Seconds without heartbeat after which the server may drop this host (NetworkConfig.DeviceTimeout). 0 = server default.</summary>
+        public float deviceTimeout;
 
         // offer / answer
         public string sdp;

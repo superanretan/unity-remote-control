@@ -1,0 +1,17 @@
+{
+  "name": "remote-control-signaling",
+  "version": "1.0.0",
+  "description": "Minimal WebSocket signaling / device registry for the Unity WebGL controller ↔ Vision Pro host WebRTC link.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "license": "MIT"
+}

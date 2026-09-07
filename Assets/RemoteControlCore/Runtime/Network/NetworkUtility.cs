@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
@@ -12,15 +10,19 @@ namespace SuperAnretan.RemoteControl
         /// <summary>
         /// Returns the first IPv4 address of this machine on the local network.
         /// Falls back to "127.0.0.1" if no network interface is found.
+        /// On WebGL there is no socket API — always returns the loopback address.
         /// </summary>
         public static string GetLocalIPAddress()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return "127.0.0.1";
+#else
             try
             {
-                var host = Dns.GetHostEntry(Dns.GetHostName());
+                var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
                 foreach (var ip in host.AddressList)
                 {
-                    if (ip.AddressFamily == AddressFamily.InterNetwork)
+                    if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
                     {
                         return ip.ToString();
                     }
@@ -32,6 +34,7 @@ namespace SuperAnretan.RemoteControl
             }
 
             return "127.0.0.1";
+#endif
         }
     }
 }

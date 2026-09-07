@@ -1,13 +1,13 @@
 {
-    "name": "SuperAnretan.RemoteControl.Runtime",
+    "name": "SuperAnretan.RemoteControl.VisionOS",
     "rootNamespace": "SuperAnretan.RemoteControl",
     "references": [
-        "Unity.Networking.Transport",
-        "Unity.Collections",
-        "Unity.TextMeshPro",
-        "UnityEngine.UI"
+        "SuperAnretan.RemoteControl.Runtime"
     ],
-    "includePlatforms": [],
+    "includePlatforms": [
+        "Editor",
+        "VisionOS"
+    ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

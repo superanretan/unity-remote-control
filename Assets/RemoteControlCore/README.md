@@ -4,6 +4,10 @@ Universal local Wi-Fi remote control plugin for Unity.
 One build = **Host** (3D scene), another = **Controller** (UI).  
 Commands travel over **Unity Transport**, are serialized as **JSON**, and are dispatched through **ScriptableObject event channels** — zero singletons, zero static state.
 
+> **WebGL controller ↔ Apple Vision Pro host (WebRTC + signaling + screen streaming):** see
+> [WEBGL_VISIONOS_REMOTE.md](../../WEBGL_VISIONOS_REMOTE.md). It runs alongside the native path described below.
+> **Step-by-step host/client setup, buttons → commands:** [SETUP_HOST_CLIENT.md](../../SETUP_HOST_CLIENT.md).
+
 ## Requirements
 
 | Dependency | Version |

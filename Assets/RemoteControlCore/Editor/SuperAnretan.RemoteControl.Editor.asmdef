@@ -2,7 +2,11 @@
     "name": "SuperAnretan.RemoteControl.Editor",
     "rootNamespace": "SuperAnretan.RemoteControl.Editor",
     "references": [
-        "SuperAnretan.RemoteControl.Runtime"
+        "SuperAnretan.RemoteControl.Runtime",
+        "SuperAnretan.RemoteControl.VisionOS",
+        "Unity.TextMeshPro",
+        "Unity.TextMeshPro.Editor",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [
         "Editor"

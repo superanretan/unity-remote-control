@@ -1,0 +1,91 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &53505015224991723
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9069710127506696198}
+  - component: {fileID: 5599833707893224940}
+  - component: {fileID: 2108518881216098806}
+  - component: {fileID: 4323944278353689232}
+  m_Layer: 0
+  m_Name: RemoteControl_VisionProHost
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &9069710127506696198
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 53505015224991723}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5599833707893224940
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 53505015224991723}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3eeb923babc4fae4f848f2865b5baf05, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: SuperAnretan.RemoteControl.VisionOS::SuperAnretan.RemoteControl.VisionProSignalingClient
+  _networkConfig: {fileID: 11400000, guid: 3c0e10330c74b9d4aa4f4e24f8aba383, type: 2}
+  _autoConnect: 1
+  _deviceNameOverride: 
+  _logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}
+--- !u!114 &2108518881216098806
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 53505015224991723}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fd266593b705a3e4a95d450afe035f11, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: SuperAnretan.RemoteControl.VisionOS::SuperAnretan.RemoteControl.VisionProWebRtcHost
+  _networkConfig: {fileID: 11400000, guid: 3c0e10330c74b9d4aa4f4e24f8aba383, type: 2}
+  _signaling: {fileID: 5599833707893224940}
+  _commandReceivedChannel: {fileID: 11400000, guid: 5b8fd39c24034b04fbfb1b4a6fb1de32, type: 2}
+  _onClientConnectedChannel: {fileID: 11400000, guid: 22bbe465241d241418926c999b0d6fa1, type: 2}
+  _onClientDisconnectedChannel: {fileID: 11400000, guid: c618ec26f1162ba48a7a6e0a205b12c8, type: 2}
+  _captureBackend: 0
+  _autoStartCapture: 1
+  _connectTimeout: 20
+  _disconnectedGrace: 5
+  _maxCommandBytes: 65536
+  _logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}
+--- !u!114 &4323944278353689232
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 53505015224991723}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 87fbd531e9d817442b7c60a7f12dc270, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: SuperAnretan.RemoteControl.Runtime::SuperAnretan.RemoteControl.CommandProcessor
+  _commandReceivedChannel: {fileID: 11400000, guid: 5b8fd39c24034b04fbfb1b4a6fb1de32, type: 2}
+  _handlerRegistry: {fileID: 11400000, guid: bb5b47b03a879ff4d87dbafbfa60f5f3, type: 2}
+  _targetRegistry: {fileID: 11400000, guid: 49ec03c304848474d86c951d0ec02f1a, type: 2}
+  _logChannel: {fileID: 11400000, guid: 0ec27c9cc1900fe4bbdfedce6239ad23, type: 2}

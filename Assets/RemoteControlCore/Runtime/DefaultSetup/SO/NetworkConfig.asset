@@ -14,3 +14,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: SuperAnretan.RemoteControl.Runtime::SuperAnretan.RemoteControl.NetworkConfig
   _port: 7777
   _maxConnections: 4
+  _signalingServerUrl: ws://localhost:8787
+  _deviceName: Vision Pro
+  _heartbeatInterval: 2
+  _deviceTimeout: 6
+  _iceServers:
+  - stun:stun.l.google.com:19302
+  _videoWidth: 1280
+  _videoHeight: 720
+  _videoFps: 24
+  _videoBitrateKbps: 2500

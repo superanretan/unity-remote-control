@@ -2,7 +2,6 @@
   "name": "remote-control-signaling",
   "version": "2.0.0",
   "description": "WebSocket signaling / device registry for the Unity WebGL controller ↔ Vision Pro host WebRTC link. Runs as a Vercel Function (Fluid compute) with state in Redis, or locally with `npm start`.",
-  "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",

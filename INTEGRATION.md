@@ -12,32 +12,156 @@ Dokumenty towarzyszące: [WEBGL_VISIONOS_REMOTE.md](WEBGL_VISIONOS_REMOTE.md) (a
 [SETUP_HOST_CLIENT.md](SETUP_HOST_CLIENT.md) (przyciski → komendy),
 [SignalingServer/README.md](SignalingServer/README.md) (serwer w szczegółach).
 
-Kolejność jest istotna: najpierw A, bo adres serwera jest potrzebny w B, a build WebGL wypala go w sobie.
+Kolejność jest wymuszona: najpierw A, bo adres serwera jest potrzebny w B, a build WebGL wypala go w sobie.
+Sekcja A prowadzi od pustego konta Vercela do dwóch działających projektów.
 
 ---
 
-## A. Serwer signalingowy na Vercelu
+## A. Vercel od zera
 
-Robisz to **raz**. Potem nie ruszasz, dopóki nie zmienisz kodu serwera.
+Powstaną **dwa projekty** na jednym koncie:
 
-Po co on jest: przeglądarka i Vision Pro muszą wymienić SDP oraz kandydatów ICE, zanim zestawią połączenie
-peer-to-peer. Statyczny hosting tego nie zrobi, bo nie utrzyma WebSocketa. Sam build WebGL nigdy nie
-wystarczy. Po zestawieniu połączenia serwer nie widzi już ani komend, ani obrazu.
+| Projekt | Co to jest | Skąd wdrażany |
+|---|---|---|
+| signaling | funkcja Node z WebSocketem, pośrednik do zestawienia połączenia | folder `SignalingServer/` |
+| kontroler | statyczna strona, czyli build WebGL | folder z buildem, np. `Builds/WebGL/` |
 
-### A1. Deploy bez importu repo
+Dlaczego dwa, a nie jeden: nowy build kontrolera nie może redeployować signalingu, bo stare połączenia
+przechodzą wtedy na nowy deployment. Przy dwóch projektach signaling stawiasz raz i nigdy go nie ruszasz.
 
-Nie musisz nic importować do Vercela ani łączyć z Gitem. CLI wysyła zawartość folderu z dysku.
+**Kolejność jest wymuszona przez zależności.** Build WebGL wypala w sobie adres signalingu, a signaling
+potrzebuje domeny kontrolera do allowlisty Origin. Dlatego: najpierw signaling, potem adres do Unity,
+potem build i upload kontrolera, na końcu domena kontrolera z powrotem do signalingu.
+
+Po co w ogóle signaling: przeglądarka i Vision Pro muszą wymienić SDP oraz kandydatów ICE, zanim zestawią
+połączenie peer-to-peer. Statyczny hosting tego nie zrobi, bo nie utrzyma WebSocketa. Sam build WebGL nigdy
+nie wystarczy. Po zestawieniu połączenia serwer nie widzi już ani komend, ani obrazu.
+
+### Ściągawka bez teorii
+
+Jeśli nie chcesz czytać wyjaśnień, rób dokładnie to. Uzasadnienia są w podsekcjach niżej.
+
+Trzy wartości, które zapisujesz sobie w trakcie i wpisujesz w kilku miejscach:
+
+| Wartość | Skąd | Gdzie potem |
+|---|---|---|
+| adres signalingu | krok 7 | Unity, krok 24 |
+| `ROOM_TOKEN` | wymyślasz w kroku 18 | Vercel krok 18, health check krok 20, Unity krok 25 |
+| adres kontrolera | krok 34 | Vercel krok 36 |
+
+**Przygotowanie**
+
+1. Wejdź na vercel.com, kliknij Sign Up, zrób konto, wybierz plan Hobby.
+2. Otwórz terminal.
+3. Wpisz `npx vercel login` i potwierdź logowanie w przeglądarce.
+
+**Serwer signalingowy**
+
+4. `cd D:\SUPERANRETAN\unity-remote-control\SignalingServer`
+5. `npx vercel --prod`
+6. Odpowiedz na pytania: **Which team** swoje konto, **Which project** `Create a new project`,
+   **Name** `remote-signaling`, **Connect this Git repository** `no`, **Customize settings** `no`.
+7. Zapisz adres z linii **Production**, np. `https://remote-signaling.vercel.app`.
+8. W panelu Vercela otwórz projekt `remote-signaling`.
+9. Settings → Functions. Upewnij się, że **Fluid Compute** jest włączone. Jeśli nie, włącz i zapisz.
+10. Zakładka Storage → Marketplace → **Upstash for Redis** → Install.
+11. Plan **Free**.
+12. Region **eu-central-1** Frankfurt → Create.
+13. **Connect to Project** → `remote-signaling` → zaznacz Production i Preview → zatwierdź.
+14. Settings → Environment Variables. Popatrz na listę zmiennych.
+15. Szukasz wartości zaczynającej się od `rediss://`. Jeśli jakakolwiek zmienna ją ma, idź do kroku 18.
+16. Jeśli widzisz tylko `KV_REST_API_URL` i `KV_REST_API_TOKEN`, wróć do Storage, otwórz kartę bazy, przejdź
+    do konsoli Upstasha i skopiuj **TCP** albo **RESP** connection string. Wygląda tak:
+    `rediss://default:haslo@nazwa.upstash.io:6379`.
+17. Wróć do Environment Variables → Add New. Key `REDIS_URL`, Value to co skopiowałeś, zaznacz Production
+    i Preview, Save.
+18. Add New. Key `ROOM_TOKEN`, Value wymyślony ciąg minimum 20 znaków. Zapisz go sobie. Production
+    i Preview, Save.
+19. `npx vercel --prod` jeszcze raz, bo zmienne działają dopiero od nowego deployu.
+20. `curl "https://remote-signaling.vercel.app/api/health?token=TWOJ_ROOM_TOKEN"`
+21. Musisz zobaczyć `"state": "ok"` i `"store": "redis"`. Jeśli nie, przeczytaj pole `detail`, jest tam
+    napisane czego brakuje.
+
+**Unity**
+
+22. Otwórz projekt kontrolera w Unity.
+23. Zaznacz `NetworkConfig.asset`.
+24. `Signaling Server Url` = `wss://remote-signaling.vercel.app/api/signaling`
+25. `Signaling Token` = `ROOM_TOKEN` z kroku 18
+26. `Device Timeout` = `15`
+27. Zapisz projekt.
+
+**Build i wrzucenie kontrolera**
+
+28. File → Build Profiles → Web. W liście scen zostaw tylko scenę kontrolera.
+29. Build, wskaż folder `Builds\WebGL`.
+30. `cp "Assets/RemoteControlCore/Deploy~/webgl-vercel.json" "Builds/WebGL/vercel.json"`
+31. `cd Builds\WebGL`
+32. `npx vercel --prod`
+33. Odpowiedz jak w kroku 6, tylko **Name** to `remote-controller`.
+34. Zapisz adres kontrolera z linii **Production**.
+35. Otwórz ten adres w przeglądarce. Scena Unity musi wstać.
+
+**Domknięcie**
+
+36. Panel → `remote-signaling` → Settings → Environment Variables → Add New. Key `ALLOWED_ORIGINS`,
+    Value adres kontrolera z kroku 34 bez ukośnika na końcu. Production i Preview, Save.
+37. `cd D:\SUPERANRETAN\unity-remote-control\SignalingServer` i `npx vercel --prod`.
+38. Koniec. Vercel jest ustawiony i nie wracasz do niego, dopóki czegoś nie zmienisz. Co robić przy
+    zmianach: §A8.
+
+Dalej: host na Vision Pro dostaje ten sam adres i token w swoim `NetworkConfig`, sekcja D.
+
+### A0. Konto i CLI
+
+1. Konto na [vercel.com](https://vercel.com), plan **Hobby**, darmowy. Zaloguj się przez GitHub albo e-mail.
+2. Node jest już potrzebny, minimum 20. Sprawdź `node --version`.
+3. Zaloguj CLI raz na maszynie:
+
+```bash
+npx vercel login
+```
+
+Nic nie instalujesz globalnie, `npx` ściąga CLI na czas komendy. Repo nie importujesz i Gita nie
+podłączasz: `vercel` wysyła zawartość wskazanego folderu z dysku.
+
+### A1. Projekt signalingu
 
 ```bash
 cd D:\SUPERANRETAN\unity-remote-control\SignalingServer && npx vercel --prod
 ```
 
-CLI poprosi o zalogowanie, potem o nazwę projektu i katalog. Bierz domyślne. Pierwszy deploy zawsze idzie na
-produkcję. Zapisz adres, który wypisze na końcu, np. `https://remote-signaling.vercel.app`.
+Pierwsze uruchomienie zapyta o kilka rzeczy. Dokładne brzmienie zależy od wersji CLI; w 59.x jest tak:
+
+| Pytanie | Odpowiedź |
+|---|---|
+| Which team? | Twoje konto lub zespół |
+| Which project? | `Create a new project` |
+| Name? | np. `remote-signaling` |
+| Connect this Git repository to automatically deploy changes on every push? | `no` |
+| Customize settings? | `no` |
+
+`Customize settings` zawsze `no`. Ustawienia biorą się z `vercel.json`, który jest w folderze, a wejście
+w kreator kazałoby tylko wpisać ręcznie to samo.
+
+Pierwszy deploy zawsze idzie na produkcję. CLI wypisze dwa adresy: `Inspect` to panel z logami, a
+**`Production`** to adres serwera, np. `https://remote-signaling.vercel.app`. Ten drugi zapisz, jest
+potrzebny w Unity.
+
+Projekt jest skonfigurowany tak, że Vercel buduje z niego **funkcje z katalogu `api/`**, a nie aplikację
+serwerową. Dlatego `vercel.json` ma `"framework": null`, a `package.json` nie ma pola `main`. Gdyby
+`main` wskazywał `server.js`, Vercel próbowałby uruchomić ten plik jako serwer i deploy padałby na
+`No entrypoint found`, bo `.vercelignore` celowo nie wysyła `server.js`.
+
+Powstał katalog `.vercel` w `SignalingServer/`. Trzyma powiązanie z projektem, więc kolejne
+`npx vercel --prod` z tego folderu nie pytają już o nic.
 
 Plik `.vercelignore` pilnuje, żeby `server.js` nie poszedł na Vercela. To nie kosmetyka: Vercel traktuje
 `server.js` w katalogu głównym jako wejście serwera Node i skierowałby do niego cały ruch, omijając funkcję
 `api/signaling.js` i jej `maxDuration`. Lokalnie `npm start` dalej działa.
+
+Sprawdź jeszcze w panelu, że Settings → Functions → **Fluid Compute** jest włączone. Dla nowych projektów
+jest domyślnie, a bez tego WebSockety nie działają. `vercel.json` w repo też to ustawia.
 
 Alternatywa, jeśli wolisz Git: Add New → Project → import repo → **Root Directory `SignalingServer`** →
 Framework *Other*, Build Command i Output puste.
@@ -72,12 +196,14 @@ konsolę providera → skopiuj **TCP / RESP connection string** w formacie
 `rediss://default:HASŁO@nazwa.upstash.io:6379` → dodaj ręcznie jako **`REDIS_URL`**. URL REST-owy wpisany
 w te zmienne jest odrzucany przy starcie z komunikatem, co skopiować, więc nie da się tego przeoczyć.
 
-Dodaj jeszcze dwie:
+Dodaj jeszcze `ROOM_TOKEN`: losowy string, minimum 20 znaków, np. z `openssl rand -hex 16`. Ten sam wpiszesz
+w Unity. Drugą zmienną, `ALLOWED_ORIGINS`, dopiszesz w §A7, kiedy będziesz już znał domenę kontrolera.
 
-| Zmienna | Wartość |
-|---|---|
-| `ROOM_TOKEN` | losowy string, minimum 20 znaków, np. z `openssl rand -hex 16`. Ten sam wpiszesz w Unity |
-| `ALLOWED_ORIGINS` | origin strony kontrolera, np. `https://moj-kontroler.vercel.app`. Bez ścieżki, bez ukośnika na końcu. Kilka domen po przecinku |
+Z terminala to samo robi się tak, jeśli nie chcesz klikać w panelu:
+
+```bash
+npx vercel env add ROOM_TOKEN production
+```
 
 Pełna lista zmiennych, w tym opcjonalne `ROOM_TOKENS` (kilka niezależnych pokoi na jednym serwerze),
 `DEVICE_TIMEOUT`, `PAIR_LEASE_SECONDS` i TURN, jest w [SignalingServer/README.md](SignalingServer/README.md) §2.3.
@@ -117,7 +243,75 @@ skrypt Lua; autotest przy starcie wywołuje na próbę każdy skrypt, więc lite
 Rejestr urządzeń podejrzysz przez `curl "https://TWOJ-SIGNALING.vercel.app/api/devices?token=TWOJ_ROOM_TOKEN"`.
 Przed uruchomieniem hosta zwróci `[]`.
 
-### A5. Zasady eksploatacji
+Na tym etapie serwer jest gotowy i więcej go nie ruszasz, poza jednorazowym dopisaniem allowlisty w §A7.
+
+### A5. Adres do Unity
+
+Zanim zbudujesz kontrolera, wpisz dane serwera do `NetworkConfig` w swoim projekcie. Szczegóły w §B3,
+w skrócie: `Signaling Server Url` = `wss://TWOJ-SIGNALING.vercel.app/api/signaling`,
+`Signaling Token` = `ROOM_TOKEN`, `Device Timeout` = 15.
+
+Adres jest **wypalany w buildzie**, więc każda jego zmiana wymaga nowego builda WebGL.
+
+### A6. Projekt kontrolera, czyli wrzucenie builda
+
+Zbuduj kontrolera: Build Profiles → **Web** → w liście scen tylko scena kontrolera → Build, np. do
+`Builds/WebGL`.
+
+Jeśli build jest skompresowany, a tak jest domyślnie, skopiuj obok `index.html` plik nagłówków z paczki
+i nazwij go `vercel.json`:
+
+```bash
+cp "Assets/RemoteControlCore/Deploy~/webgl-vercel.json" "Builds/WebGL/vercel.json"
+```
+
+Bez tego pliku strona pokaże białe tło, bo przeglądarka dostanie skompresowane pliki bez nagłówka
+`Content-Encoding`. Alternatywa: włącz **Decompression Fallback** w Player Settings, wtedy nagłówki są
+zbędne, kosztem trochę większego pobrania. Sprawdzić, co masz, możesz w Player Settings → Publishing
+Settings → Compression Format.
+
+Wrzuć folder jako drugi projekt:
+
+```bash
+cd Builds\WebGL && npx vercel --prod
+```
+
+Odpowiedzi na pytania jak w §A1, tylko nazwa inna, np. `remote-controller`. Vercel rozpozna statyczną
+stronę sam, bez build commanda. Na końcu dostaniesz adres kontrolera, np.
+`https://remote-controller.vercel.app`. Otwórz go, powinna wstać scena Unity.
+
+Uwaga praktyczna: Unity przy kolejnym buildzie potrafi wyczyścić folder wyjściowy razem z `vercel.json`
+i katalogiem `.vercel`. Jeśli tak się stanie, po prostu skopiuj `vercel.json` ponownie, a `npx vercel --prod`
+zapyta o projekt i wtedy wybierasz **Link to existing project** i nazwę `remote-controller`. Kto woli mieć
+z tym spokój, trzyma stały folder wdrożeniowy poza Unity i kopiuje do niego wynik builda.
+
+### A7. Domknięcie: allowlista Origin
+
+Wróć do projektu signalingu, Settings → Environment Variables, i dodaj:
+
+| Zmienna | Wartość |
+|---|---|
+| `ALLOWED_ORIGINS` | `https://remote-controller.vercel.app`, czyli sam origin kontrolera, bez ścieżki i bez ukośnika na końcu. Kilka domen po przecinku |
+
+Potem redeploy signalingu, bo zmienne działają od nowego deployu:
+
+```bash
+cd D:\SUPERANRETAN\unity-remote-control\SignalingServer && npx vercel --prod
+```
+
+Od tego momentu przeglądarka z innej domeny nie podłączy się do Twojego signalingu. Vision Pro nie wysyła
+nagłówka `Origin`, więc jego to nie dotyczy; jego bramką jest token.
+
+### A8. Aktualizacje później
+
+| Co zmieniłeś | Co robisz |
+|---|---|
+| UI kontrolera, sceny, cokolwiek w Unity | build WebGL, skopiuj `vercel.json`, `npx vercel --prod` w folderze builda |
+| adres lub token signalingu | popraw `NetworkConfig`, potem build i upload jak wyżej |
+| zmienną środowiskową na serwerze | zmień w panelu, potem `npx vercel --prod` w `SignalingServer` |
+| kod serwera signalingowego | `npx vercel --prod` w `SignalingServer`, nigdy w trakcie prezentacji |
+
+### A9. Zasady eksploatacji
 
 - **Nie deployuj serwera w trakcie prezentacji.** Stare połączenia zostają na starym deploymencie do
   zamknięcia, nowe idą na nowy. Dane w Redisie są wspólne, więc jest to przeżywalne, ale nie przy widowni.
@@ -332,30 +526,18 @@ element `<video>` nad canvasem i służy tylko do diagnostyki.
 
 ### C6. Build WebGL i wrzucenie na Vercel
 
-1. Player Settings → Publishing Settings. Sprawdź **Compression Format** i **Decompression Fallback**.
-   Domyślnie w tym repo jest Brotli z wyłączonym fallbackiem, co wymaga nagłówków po stronie hostingu.
-   Najprostsza alternatywa: włącz **Decompression Fallback**, wtedy nagłówki nie są potrzebne, kosztem
-   trochę większego pobrania.
-2. Build Profiles → **Web**, w liście scen tylko scena kontrolera. Build.
-3. Do folderu builda, obok `index.html`, skopiuj gotowy plik nagłówków z paczki:
-   `Deploy~/webgl-vercel.json` → zmień nazwę na `vercel.json`. Ustawia `Content-Encoding` dla `.br`, `.gz`
-   i `.unityweb`, poprawny `Content-Type` dla `.wasm` i `.data`, oraz cache dla katalogu `Build/`.
-   W repo plik leży w `Assets/RemoteControlCore/Deploy~/webgl-vercel.json`, po instalacji paczki w
-   `Packages/com.superanretan.remotecontrol/Deploy~/` albo w `Library/PackageCache/…/Deploy~/`.
-   Jeśli włączyłeś Decompression Fallback albo Twój projekt kontrolera już ma własny `vercel.json`, pomiń.
-4. Wrzuć folder:
+Komendy i pytania CLI są w **§A6**, żeby cała ścieżka wdrożeniowa była w jednym miejscu. Tutaj tylko rzeczy
+specyficzne dla builda kontrolera:
 
-```bash
-cd <folder-builda> && npx vercel --prod
-```
-
-Też bez importu repo. Pierwszy raz CLI zapyta o nazwę projektu; to będzie osobny projekt niż signaling.
-Alternatywnie wrzuć build tak, jak robisz to dzisiaj, byle pod HTTPS.
-
-5. Domenę, którą dostaniesz, wpisz na serwerze signalingowym w `ALLOWED_ORIGINS` i zrób redeploy serwera.
-
-Strona po HTTPS może otwierać tylko `wss://`. Dlatego lokalny dev po LAN-ie robi się na stronie po zwykłym
-`http://` z `ws://<ip-pc>:8787`, a nie na wersji z Vercela.
+- W liście scen buildu ma być **tylko** scena kontrolera.
+- Adres signalingu z `NetworkConfig` jest wypalany w buildzie. Zmiana adresu albo tokenu to nowy build.
+- Kompresja: domyślnie Brotli z wyłączonym fallbackiem, co wymaga nagłówków `Content-Encoding` po stronie
+  hostingu. Gotowy plik leży w paczce jako `Deploy~/webgl-vercel.json` i kopiujesz go do folderu builda pod
+  nazwą `vercel.json`. Prostsza alternatywa: włącz **Decompression Fallback** w Player Settings i zapomnij
+  o nagłówkach.
+- Pliki `.br` bez tych nagłówków dają białą stronę bez żadnego sensownego błędu w konsoli.
+- Strona po HTTPS może otwierać tylko `wss://`. Dlatego lokalny dev po LAN-ie robi się na stronie po zwykłym
+  `http://` z `ws://<ip-pc>:8787`, a nie na wersji z Vercela.
 
 ---
 
@@ -455,6 +637,7 @@ zobaczysz `[Signaling] reconnect in 1s` i nic więcej się nie dzieje.
 
 | Objaw | Sprawdź |
 |---|---|
+| Deploy serwera pada na `No entrypoint found in "/vercel/path0"` | `package.json` nie może mieć pola `main`, a `vercel.json` musi mieć `"framework": null`. Vercel bierze wtedy funkcje z `api/`, zamiast szukać aplikacji serwerowej. Jeśli projekt powstał wcześniej z presetem Node, zmień go w panelu: Settings → Build & Deployment → Framework Preset → **Other** |
 | Kontroler: `server-misconfigured:no-redis-url` | Deployment nie ma Redisa. `curl /api/health` powie dokładnie czego brakuje. Zmienne działają od nowego deployu |
 | Kontroler: `unauthorized` albo `Signaling rejected` | `NetworkConfig.Signaling Token` różny od `ROOM_TOKEN` na serwerze |
 | Kontroler: `origin-not-allowed` | Domena strony nie jest w `ALLOWED_ORIGINS` |

@@ -127,6 +127,12 @@ cd SignalingServer && npx vercel --prod
 
    If you prefer Git: Add New → Project → import the repo → **Root Directory** = `SignalingServer`, framework
    preset *Other*, no build command.
+
+   Two settings keep the deployment on the documented path and must stay as they are: `vercel.json` declares
+   `"framework": null` and `package.json` has **no** `main` field. Otherwise Vercel's Node detection looks for a
+   server entrypoint, does not find `server.js` because `.vercelignore` withholds it, and the deploy fails with
+   `No entrypoint found in "/vercel/path0"`. Verify locally at any time with `npx vercel build`: the output must
+   contain `functions/api/signaling.func` with `maxDuration: 300` and `functions/api/devices.func`.
 2. Environment variables (Production + Preview):
 
 | Variable | Required | Default | Meaning |
@@ -270,8 +276,11 @@ extending `VisionProWebRtcHost` to merge `registered.iceServers` is the document
   credentials (`NetworkConfig.IceServerEntries`, §6); a TURN server is still needed.
 - Watch the function logs for `[registry] host timed out` (host really gone) and `[pair] lease expired`
   (controller vanished without `disconnect`).
-- Health: `GET /api/health?token=…` → the full JSON verdict (§2.3 step 5). `GET /` or a non-upgrade
-  `GET /api/signaling` → one line: `remote-control-signaling <state> — instance=… store=redis …`.
+- Health: `GET /api/health?token=…` → the full JSON verdict (§2.3 step 5), served by `api/health.js`.
+  A non-upgrade `GET /api/signaling` → one line: `remote-control-signaling <state> — instance=… store=redis …`.
+  Plain `GET /` returns that line only on the local server; on Vercel the root has no function and answers 404.
+  Every path must have its own file under `api/` — a path handled inside `handleHttp` but missing a file is a
+  Vercel 404, which is why `npm test` asserts the mapping.
 - Vision Pro sends nothing while its own socket is between reconnects (~1 s every 300 s). ICE candidates
   the native stack generates exactly then are dropped by `VisionProSignalingClient.Send` — negotiation
   normally has many candidates and a 20 s connect timeout with retry, so this has not been observed to

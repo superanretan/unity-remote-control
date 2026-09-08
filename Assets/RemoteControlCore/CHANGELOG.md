@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`WebRtcHostBridge.mm` did not compile against LiveKitWebRTC.** LiveKit prefixes enums and enum constants
   too (`RTC_OBJC_TYPE` → `LKRTC…`), so the bare `RTCPeerConnectionState`, `RTCSdpSemanticsUnifiedPlan`,
   `RTCDataChannelStateOpen`, `RTCVideoRotation_0`, … now all go through the `RC_RTC()` macro.
+- **Signaling server could not be deployed to Vercel.** `package.json` had a `main` field pointing at `server.js`,
+  so Vercel's Node detection treated the project as a server app and failed with
+  `No entrypoint found in "/vercel/path0"` — `.vercelignore` deliberately withholds `server.js` so the functions in
+  `api/` stay in charge. The field is gone and `vercel.json` now declares `"framework": null`.
+- **`GET /api/health` returned 404 on Vercel.** The endpoint was implemented inside the shared `handleHttp`, which
+  the local `server.js` serves for every path, but a Function only receives the path its file maps to. Added
+  `api/health.js` and a `/health` rewrite, plus a test asserting that every path the server answers has a matching
+  file under `api/` — behavioural tests cannot see this class of bug.
+  Verified against the live deployment: `state: ok`, `store: redis`, `pubsub: ok`, `lua: ok`, which also confirms the
+  Lua scripts against a real Redis engine for the first time.
 
 ## [2.0.0] - 2026-09-07
 

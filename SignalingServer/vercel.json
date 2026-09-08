@@ -1,13 +1,16 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
   "fluid": true,
   "regions": ["fra1"],
   "functions": {
     "api/signaling.js": { "maxDuration": 300 },
-    "api/devices.js": { "maxDuration": 10 }
+    "api/devices.js": { "maxDuration": 10 },
+    "api/health.js": { "maxDuration": 30 }
   },
   "rewrites": [
-    { "source": "/devices", "destination": "/api/devices" }
+    { "source": "/devices", "destination": "/api/devices" },
+    { "source": "/health", "destination": "/api/health" }
   ],
   "headers": [
     {

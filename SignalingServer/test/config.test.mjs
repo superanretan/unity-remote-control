@@ -3,7 +3,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig, resolveRedisUrl, REDIS_URL_VARS } from "../src/config.js";
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("the Redis TCP URL is accepted under every name the Marketplace integrations inject", () => {
   assert.deepEqual(resolveRedisUrl({ REDIS_URL: "rediss://default:pw@eu1.upstash.io:6379" }),
@@ -48,6 +53,29 @@ test("no Redis is fatal on Vercel and harmless locally", () => {
   // A broken URL is fatal everywhere — it can only be a configuration mistake.
   assert.equal(loadConfig({ REDIS_URL: "https://x.upstash.io" }).misconfigured.slug, "redis-url-is-rest");
   assert.equal(loadConfig({ REDIS_URL: "rediss://h:6379" }).misconfigured, null);
+});
+
+// The local server answers every path from one process, a Vercel Function only receives the path its file
+// maps to. A handled path without a file is a 404 that no behavioural test can see.
+test("every HTTP path the server answers has a matching Vercel function file", () => {
+  const vercel = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
+  const apiFiles = fs.readdirSync(path.join(root, "api"));
+
+  for (const p of ["signaling.js", "devices.js", "health.js"])
+    assert.ok(apiFiles.includes(p), `api/${p} is missing`);
+
+  for (const key of Object.keys(vercel.functions))
+    assert.ok(fs.existsSync(path.join(root, key)), `${key} is configured in vercel.json but does not exist`);
+
+  for (const rewrite of vercel.rewrites) {
+    const file = rewrite.destination.replace(/^\//, "") + ".js";
+    assert.ok(fs.existsSync(path.join(root, file)), `${rewrite.destination} has no ${file}`);
+  }
+
+  // Vercel's Node detection must not capture a server entrypoint instead of the api/ functions.
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  assert.equal(pkg.main, undefined, 'package.json "main" makes Vercel look for a server entrypoint');
+  assert.equal(vercel.framework, null, 'vercel.json needs "framework": null');
 });
 
 test("defaults match the documented timings", () => {

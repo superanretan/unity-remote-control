@@ -100,3 +100,5 @@ InitTestScene*.unity*
 
 # Signaling server dependencies
 /SignalingServer/node_modules/
+
+.vercel

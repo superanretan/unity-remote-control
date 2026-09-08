@@ -173,11 +173,15 @@ Apple Developer account. Windowed apps need nothing else; for a fully-immersive/
    and handlers exactly as before.
 3. Switch platform to visionOS, build → Xcode project. `RemoteControlVisionOSPostProcessor` automatically:
    * adds the Swift package **`https://github.com/livekit/webrtc-xcframework` @ `150.7871.01`** (product `LiveKitWebRTC`, visionOS 2.2+ slices) to `UnityFramework`
+     **and to the app target** — `LiveKitWebRTC` is a dynamic framework, so the app has to link it for Xcode to embed it in the `.app`
    * links `ReplayKit`, `CoreMedia`, `CoreVideo` (+ `ScreenCaptureKit` and `VPR_ENABLE_SCREENCAPTUREKIT=1` when `EnableScreenCaptureKit` is on)
    * adds `NSLocalNetworkUsageDescription` and `NSScreenCaptureUsageDescription` to Info.plist
 4. In Xcode: set your Team/signing, let SPM resolve the package (first time needs network), run on device.
 
 The native plugin compiles against either `LiveKitWebRTC` (`LKRTC…` classes) or a plain visionOS `WebRTC.xcframework` (`RTC…`) — see the `RC_RTC()` macro.
+LiveKit runs enum types and enum constants through `RTC_OBJC_TYPE` as well, so every WebRTC identifier in `WebRtcHostBridge.mm`
+goes through `RC_RTC()` — `RC_RTC(PeerConnectionState)`, `RC_RTC(SdpSemanticsUnifiedPlan)`, `RC_RTC(VideoRotation_0)`, … A bare
+`RTC…` name compiles only against a plain WebRTC build and breaks the LiveKit one.
 If you prefer a manual xcframework, drop it into Xcode and remove the SPM lines from the post-processor.
 
 ## 5. Signaling server
@@ -259,6 +263,8 @@ controller log shows `[DataChannel] Received: [capture] topic=capture value=stre
 | Black texture but overlay works | GL texture id mismatch — make sure `RemoteVideoView` is on the RawImage GameObject and WebGL 2 is enabled. |
 | `DllNotFoundException`/`EntryPointNotFoundException` | `.jslib` platform must be WebGL only; `.mm/.h` must be VisionOS only (both are set in the metas). |
 | Xcode: `LiveKitWebRTC/LiveKitWebRTC.h not found` | SPM package didn't resolve (offline) — File ▸ Packages ▸ Resolve Package Versions. |
+| Xcode: `#error "No WebRTC framework found."` + a cascade of `Unknown type name 'RC_RTC'` | The post-processor never ran. Check the Editor log for `[RemoteControl] No .xcodeproj found` / `UnityFramework target not found`; a build that predates 2.0.1 hit this on every visionOS build because the project was looked up as `Unity-iPhone.xcodeproj`. Rebuild from Unity — do not hand-add the package, the whole wiring is missing. |
+| Runtime: `dyld: Library not loaded: @rpath/LiveKitWebRTC.framework/LiveKitWebRTC` | The framework was linked only into `UnityFramework` and never embedded. Fixed in 2.0.1 (app target links it too); on an older Xcode project add `LiveKitWebRTC` to the app target's *Frameworks, Libraries, and Embedded Content*. |
 | Xcode: `presentPickerForCurrentApplication` unknown | Xcode < 27 with `EnableScreenCaptureKit = true` → set it back to `false`. |
 | Host in the **Editor** registers but never answers / logs stall | The Editor stops ticking Play Mode when it loses focus; signaling threads keep heart-beating but `Update()` doesn't pump events. Focus the Editor, or `unity command set_autotick --enable true`. Editor hosts always reject offers with `peer-create-failed` (no native WebRTC) — that's expected. |
 | Controller in a **background tab** reacts seconds late | Browsers throttle `requestAnimationFrame` for hidden tabs, so Unity's main loop (and the C# event pump) pauses; JS sockets/timers still run. Keep the controller tab visible. |

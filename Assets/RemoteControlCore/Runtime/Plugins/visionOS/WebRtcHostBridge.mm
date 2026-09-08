@@ -83,15 +83,15 @@ static RC_RTC(PeerConnectionFactory) *RCMakeFactory(void)
     return [[RC_RTC(PeerConnectionFactory) alloc] initWithEncoderFactory:encoder decoderFactory:decoder];
 }
 
-static NSString *RCConnectionStateName(RTCPeerConnectionState state)
+static NSString *RCConnectionStateName(RC_RTC(PeerConnectionState) state)
 {
     switch (state) {
-        case RTCPeerConnectionStateNew:          return @"new";
-        case RTCPeerConnectionStateConnecting:   return @"connecting";
-        case RTCPeerConnectionStateConnected:    return @"connected";
-        case RTCPeerConnectionStateDisconnected: return @"disconnected";
-        case RTCPeerConnectionStateFailed:       return @"failed";
-        case RTCPeerConnectionStateClosed:       return @"closed";
+        case RC_RTC(PeerConnectionStateNew):          return @"new";
+        case RC_RTC(PeerConnectionStateConnecting):   return @"connecting";
+        case RC_RTC(PeerConnectionStateConnected):    return @"connected";
+        case RC_RTC(PeerConnectionStateDisconnected): return @"disconnected";
+        case RC_RTC(PeerConnectionStateFailed):       return @"failed";
+        case RC_RTC(PeerConnectionStateClosed):       return @"closed";
     }
     return @"unknown";
 }
@@ -111,8 +111,8 @@ static NSString *RCConnectionStateName(RTCPeerConnectionState state)
     [self close];
 
     RC_RTC(Configuration) *config = [[RC_RTC(Configuration) alloc] init];
-    config.sdpSemantics = RTCSdpSemanticsUnifiedPlan;
-    config.continualGatheringPolicy = RTCContinualGatheringPolicyGatherContinually;
+    config.sdpSemantics = RC_RTC(SdpSemanticsUnifiedPlan);
+    config.continualGatheringPolicy = RC_RTC(ContinualGatheringPolicyGatherContinually);
     if (iceServers.count > 0) {
         // One RTCIceServer per NetworkConfig entry — TURN entries carry their own username/credential.
         config.iceServers = iceServers;
@@ -149,11 +149,11 @@ static NSString *RCConnectionStateName(RTCPeerConnectionState state)
     // The browser offered a recvonly video m-line: bind our track to that transceiver so the
     // answer becomes sendonly without renegotiation.
     for (RC_RTC(RtpTransceiver) *transceiver in pc.transceivers) {
-        if (transceiver.mediaType != RTCRtpMediaTypeVideo) continue;
+        if (transceiver.mediaType != RC_RTC(RtpMediaTypeVideo)) continue;
         if (transceiver.sender.track != nil) continue;
         [transceiver.sender setTrack:self.videoTrack];
         NSError *error = nil;
-        [transceiver setDirection:RTCRtpTransceiverDirectionSendOnly error:&error];
+        [transceiver setDirection:RC_RTC(RtpTransceiverDirectionSendOnly) error:&error];
         self.videoSender = transceiver.sender;
         VPR_Log(@"[WebRTC] Video track attached to offered transceiver.");
         return;
@@ -180,7 +180,7 @@ static NSString *RCConnectionStateName(RTCPeerConnectionState state)
     RC_RTC(PeerConnection) *pc = self.peer;
     if (!pc) { VPR_Emit(@"error", @"no-peer"); return; }
 
-    RC_RTC(SessionDescription) *offer = [[RC_RTC(SessionDescription) alloc] initWithType:RTCSdpTypeOffer sdp:sdp];
+    RC_RTC(SessionDescription) *offer = [[RC_RTC(SessionDescription) alloc] initWithType:RC_RTC(SdpTypeOffer) sdp:sdp];
     RC_RTC(MediaConstraints) *constraints =
         [[RC_RTC(MediaConstraints) alloc] initWithMandatoryConstraints:nil optionalConstraints:nil];
 
@@ -243,7 +243,7 @@ static NSString *RCConnectionStateName(RTCPeerConnectionState state)
 - (BOOL)sendText:(NSString *)text
 {
     RC_RTC(DataChannel) *dc = self.dataChannel;
-    if (!dc || dc.readyState != RTCDataChannelStateOpen) return NO;
+    if (!dc || dc.readyState != RC_RTC(DataChannelStateOpen)) return NO;
     RC_RTC(DataBuffer) *buffer = [[RC_RTC(DataBuffer) alloc] initWithData:[text dataUsingEncoding:NSUTF8StringEncoding] isBinary:NO];
     return [dc sendData:buffer];
 }
@@ -296,25 +296,25 @@ static NSString *RCConnectionStateName(RTCPeerConnectionState state)
 
     RC_RTC(CVPixelBuffer) *rtcBuffer = [[RC_RTC(CVPixelBuffer) alloc] initWithPixelBuffer:pixelBuffer];
     RC_RTC(VideoFrame) *frame = [[RC_RTC(VideoFrame) alloc] initWithBuffer:rtcBuffer
-                                                                 rotation:RTCVideoRotation_0
+                                                                 rotation:RC_RTC(VideoRotation_0)
                                                               timeStampNs:timestampNs];
     [source capturer:capturer didCaptureVideoFrame:frame];
 }
 
 // ───────── RTCPeerConnectionDelegate ─────────
 
-- (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didChangeSignalingState:(RTCSignalingState)stateChanged {}
+- (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didChangeSignalingState:(RC_RTC(SignalingState))stateChanged {}
 - (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didAddStream:(RC_RTC(MediaStream) *)stream {}
 - (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didRemoveStream:(RC_RTC(MediaStream) *)stream {}
 - (void)peerConnectionShouldNegotiate:(RC_RTC(PeerConnection) *)peerConnection {}
-- (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didChangeIceConnectionState:(RTCIceConnectionState)newState {}
-- (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didChangeIceGatheringState:(RTCIceGatheringState)newState {}
+- (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didChangeIceConnectionState:(RC_RTC(IceConnectionState))newState {}
+- (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didChangeIceGatheringState:(RC_RTC(IceGatheringState))newState {}
 - (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didRemoveIceCandidates:(NSArray<RC_RTC(IceCandidate) *> *)candidates {}
 
-- (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didChangeConnectionState:(RTCPeerConnectionState)newState
+- (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didChangeConnectionState:(RC_RTC(PeerConnectionState))newState
 {
     if (peerConnection != self.peer) return;
-    self.connected = (newState == RTCPeerConnectionStateConnected);
+    self.connected = (newState == RC_RTC(PeerConnectionStateConnected));
     VPR_Emit(@"connection-state", RCConnectionStateName(newState));
 }
 
@@ -336,7 +336,7 @@ static NSString *RCConnectionStateName(RTCPeerConnectionState state)
     self.dataChannel = dataChannel;
     dataChannel.delegate = self;
     VPR_Log([NSString stringWithFormat:@"[DataChannel] '%@' announced by controller.", dataChannel.label]);
-    if (dataChannel.readyState == RTCDataChannelStateOpen) VPR_Emit(@"datachannel-open", dataChannel.label);
+    if (dataChannel.readyState == RC_RTC(DataChannelStateOpen)) VPR_Emit(@"datachannel-open", dataChannel.label);
 }
 
 // ───────── RTCDataChannelDelegate ─────────
@@ -345,8 +345,8 @@ static NSString *RCConnectionStateName(RTCPeerConnectionState state)
 {
     if (dataChannel != self.dataChannel) return;
     switch (dataChannel.readyState) {
-        case RTCDataChannelStateOpen:   VPR_Emit(@"datachannel-open", dataChannel.label); break;
-        case RTCDataChannelStateClosed: VPR_Emit(@"datachannel-closed", dataChannel.label); break;
+        case RC_RTC(DataChannelStateOpen):   VPR_Emit(@"datachannel-open", dataChannel.label); break;
+        case RC_RTC(DataChannelStateClosed): VPR_Emit(@"datachannel-closed", dataChannel.label); break;
         default: break;
     }
 }

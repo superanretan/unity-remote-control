@@ -1,6 +1,6 @@
 {
   "name": "com.superanretan.remotecontrol",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "displayName": "Remote Control",
   "description": "Universal remote control system for Unity. One build = Host (3D scene), another = Controller (UI). Native path over Unity Transport; WebGL controller <-> Apple Vision Pro host over WebRTC (signaling on Vercel + Redis, screen streaming, host->controller return channel). Commands are JSON dispatched to handlers via ScriptableObject event channels. No singletons, no static, handler-based.",
   "unity": "6000.0",

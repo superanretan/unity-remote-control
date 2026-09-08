@@ -34,10 +34,10 @@ namespace SuperAnretan.RemoteControl.Editor
         {
             if (target != BuildTarget.VisionOS) return;
 
-            string projectPath = PBXProject.GetPBXProjectPath(buildPath);
-            if (!File.Exists(projectPath))
+            string projectPath = ResolvePbxProjectPath(buildPath);
+            if (projectPath == null)
             {
-                Debug.LogWarning($"[RemoteControl] Xcode project not found at {projectPath}");
+                Debug.LogError($"[RemoteControl] No .xcodeproj found under {buildPath} — WebRTC not wired.");
                 return;
             }
 
@@ -45,11 +45,20 @@ namespace SuperAnretan.RemoteControl.Editor
             project.ReadFromFile(projectPath);
 
             string frameworkTarget = project.GetUnityFrameworkTargetGuid();
-            string mainTarget = project.GetUnityMainTargetGuid();
+            if (string.IsNullOrEmpty(frameworkTarget))
+            {
+                Debug.LogError("[RemoteControl] UnityFramework target not found — WebRTC not wired.");
+                return;
+            }
+            string mainTarget = ResolveMainTargetGuid(project);
 
             // WebRTC via Swift Package Manager (adds the xcframework with xros slices).
             string packageGuid = project.AddRemotePackageReferenceAtVersion(WebRtcPackageUrl, WebRtcPackageVersion);
             project.AddRemotePackageFrameworkToProject(frameworkTarget, WebRtcProductName, packageGuid, false);
+            // LiveKitWebRTC is a dynamic framework: the app target has to link it too, otherwise Xcode
+            // never copies it into the .app bundle and the host crashes on launch with a dyld miss.
+            if (!string.IsNullOrEmpty(mainTarget))
+                project.AddRemotePackageFrameworkToProject(mainTarget, WebRtcProductName, packageGuid, false);
 
             // System frameworks used by the native plugin.
             project.AddFrameworkToProject(frameworkTarget, "ReplayKit.framework", false);
@@ -83,6 +92,39 @@ namespace SuperAnretan.RemoteControl.Editor
 
             Debug.Log($"[RemoteControl] visionOS Xcode project configured: {WebRtcProductName} {WebRtcPackageVersion}, ReplayKit" +
                       (EnableScreenCaptureKit ? ", ScreenCaptureKit" : "") + $" (main target {mainTarget}).");
+        }
+
+        /// <summary>
+        /// PBXProject.GetPBXProjectPath() hardcodes the iOS project name (Unity-iPhone.xcodeproj);
+        /// a visionOS build emits Unity-VisionOS.xcodeproj, so resolve the real one.
+        /// </summary>
+        private static string ResolvePbxProjectPath(string buildPath)
+        {
+            foreach (string projectName in new[] { "Unity-VisionOS.xcodeproj", "Unity-iPhone.xcodeproj" })
+            {
+                string candidate = Path.Combine(buildPath, projectName, "project.pbxproj");
+                if (File.Exists(candidate)) return candidate;
+            }
+
+            foreach (string directory in Directory.GetDirectories(buildPath, "*.xcodeproj"))
+            {
+                string candidate = Path.Combine(directory, "project.pbxproj");
+                if (File.Exists(candidate)) return candidate;
+            }
+
+            return null;
+        }
+
+        /// <summary>GetUnityMainTargetGuid() also assumes "Unity-iPhone"; the visionOS app target is named differently.</summary>
+        private static string ResolveMainTargetGuid(PBXProject project)
+        {
+            foreach (string targetName in new[] { "Unity-VisionOS", "Unity-iPhone" })
+            {
+                string guid = project.TargetGuidByName(targetName);
+                if (!string.IsNullOrEmpty(guid)) return guid;
+            }
+
+            return null;
         }
 
         private static void SetIfMissing(PlistElementDict dict, string key, string value)

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-09-08
+
+### Fixed
+- **visionOS Xcode wiring never ran.** `RemoteControlVisionOSPostProcessor` resolved the project through
+  `PBXProject.GetPBXProjectPath()`, which hardcodes `Unity-iPhone.xcodeproj`; a visionOS build emits
+  `Unity-VisionOS.xcodeproj`, so the post-processor logged a warning and returned — no LiveKitWebRTC package,
+  no ReplayKit, no Info.plist keys. `WebRtcHostBridge.mm` then failed with `#error "No WebRTC framework found."`
+  and a cascade of `Unknown type name 'RC_RTC'`. The project and the app target are now resolved by name with
+  a `*.xcodeproj` fallback.
+- **LiveKitWebRTC is a dynamic framework** — it is now linked from the app target as well, so Xcode embeds it
+  into the `.app` instead of only into `UnityFramework`.
+- **`WebRtcHostBridge.mm` did not compile against LiveKitWebRTC.** LiveKit prefixes enums and enum constants
+  too (`RTC_OBJC_TYPE` → `LKRTC…`), so the bare `RTCPeerConnectionState`, `RTCSdpSemanticsUnifiedPlan`,
+  `RTCDataChannelStateOpen`, `RTCVideoRotation_0`, … now all go through the `RC_RTC()` macro.
+
 ## [2.0.0] - 2026-09-07
 
 Full write-up: [REMOTE_CONTROLLER.md](../../REMOTE_CONTROLLER.md).

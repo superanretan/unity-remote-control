@@ -279,7 +279,7 @@ Zmienione
 
 ## 6. Release
 
-Wersja paczki: `2.0.0` (`Assets/RemoteControlCore/package.json`). Proponowany tag: `vpwebgl2.0`.
+Wersja paczki: `2.0.2` (`Assets/RemoteControlCore/package.json`). Proponowany tag: `vpwebgl2.0`.
 Konsument wskazuje go w `Packages/manifest.json`:
 
 ```json

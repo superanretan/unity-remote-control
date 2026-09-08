@@ -41,7 +41,7 @@ namespace SuperAnretan.RemoteControl
         [DllImport("__Internal")] private static extern int  WebGLRemote_HasVideo();
         [DllImport("__Internal")] private static extern int  WebGLRemote_GetVideoWidth();
         [DllImport("__Internal")] private static extern int  WebGLRemote_GetVideoHeight();
-        [DllImport("__Internal")] private static extern int  WebGLRemote_UpdateTexture(int textureId);
+        [DllImport("__Internal")] private static extern int  WebGLRemote_UpdateTexture(int textureId, int width, int height);
         [DllImport("__Internal")] private static extern void WebGLRemote_SetOverlay(int enabled);
 #else
         /// <summary>True only inside a WebGL player build.</summary>
@@ -59,7 +59,7 @@ namespace SuperAnretan.RemoteControl
         private static int  WebGLRemote_HasVideo() => 0;
         private static int  WebGLRemote_GetVideoWidth() => 0;
         private static int  WebGLRemote_GetVideoHeight() => 0;
-        private static int  WebGLRemote_UpdateTexture(int textureId) => 0;
+        private static int  WebGLRemote_UpdateTexture(int textureId, int width, int height) => 0;
         private static void WebGLRemote_SetOverlay(int enabled) { }
 #endif
 
@@ -108,8 +108,14 @@ namespace SuperAnretan.RemoteControl
         public static int VideoWidth => WebGLRemote_GetVideoWidth();
         public static int VideoHeight => WebGLRemote_GetVideoHeight();
 
-        /// <summary>Copies the latest decoded video frame into the GL texture behind <paramref name="nativeTexturePtr"/>.</summary>
-        public static bool UpdateTexture(IntPtr nativeTexturePtr) => WebGLRemote_UpdateTexture(nativeTexturePtr.ToInt32()) != 0;
+        /// <summary>
+        /// Copies the latest decoded video frame into the GL texture behind <paramref name="nativeTexturePtr"/>.
+        /// <paramref name="width"/>/<paramref name="height"/> are the dimensions the texture was allocated with:
+        /// the upload is skipped when the incoming video no longer matches them, because Unity's WebGL2
+        /// textures are immutable and only accept a same-size texSubImage2D.
+        /// </summary>
+        public static bool UpdateTexture(IntPtr nativeTexturePtr, int width, int height) =>
+            WebGLRemote_UpdateTexture(nativeTexturePtr.ToInt32(), width, height) != 0;
 
         /// <summary>Debug fallback: show the raw HTMLVideoElement on top of the canvas.</summary>
         public static void SetOverlay(bool enabled) => WebGLRemote_SetOverlay(enabled ? 1 : 0);

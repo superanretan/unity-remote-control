@@ -66,7 +66,9 @@ namespace SuperAnretan.RemoteControl
             if (_texture == null || _texture.width != w || _texture.height != h)
                 CreateTexture(w, h);
 
-            WebGLRemoteBridge.UpdateTexture(_nativePtr);
+            if (_nativePtr == IntPtr.Zero) return;
+
+            WebGLRemoteBridge.UpdateTexture(_nativePtr, _texture.width, _texture.height);
         }
 
         private void OnBridgeEvent(string type, string payload)
@@ -92,6 +94,9 @@ namespace SuperAnretan.RemoteControl
 
         private void CreateTexture(int w, int h)
         {
+            // Drop the old id first: Destroy() frees the GL texture and the browser may hand the
+            // same id back for something else, so an upload must never target a stale pointer.
+            _nativePtr = IntPtr.Zero;
             if (_texture != null) Destroy(_texture);
 
             _texture = new Texture2D(w, h, TextureFormat.RGBA32, false)

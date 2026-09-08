@@ -44,6 +44,9 @@ var WebGLRemoteBridgeLib = {
     frameDirty: false,
     videoW: 0,
     videoH: 0,
+    uploadKey: "",      // texId+size the upload path below was probed for
+    uploadMode: null,   // null = not probed yet, then "texsubimage" | "teximage"
+    uploadFails: 0,
     overlay: false,
 
     // ───────── util ─────────
@@ -521,26 +524,93 @@ var WebGLRemoteBridgeLib = {
       }
     },
 
-    updateTexture: function (texId) {
+    // Uploads the current video frame into the GL texture Unity allocated for the
+    // Texture2D. Unity's WebGL2 backend allocates Texture2D storage with texStorage2D,
+    // which makes the texture IMMUTABLE: texImage2D on it fails with GL_INVALID_OPERATION
+    // ("Texture is immutable") and the frame never lands. texSubImage2D is the only legal
+    // upload path there, and it requires the source video to match the texture exactly,
+    // hence the (w,h) the caller passes in.
+    updateTexture: function (texId, w, h) {
       var S = WebGLRemote, v = S.video;
       if (!v || !S.hasVideo || !S.frameDirty || v.readyState < 2) return 0;
-      var tex = GL.textures[texId];
-      if (!tex) return 0;
-      var gl = GLctx;
-      var prev = gl.getParameter(gl.TEXTURE_BINDING_2D);
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-      try {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
-      } catch (e) {
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-        gl.bindTexture(gl.TEXTURE_2D, prev);
+
+      var vw = v.videoWidth | 0, vh = v.videoHeight | 0;
+      if (vw <= 0 || vh <= 0) return 0;
+
+      // The video resized without the "resize" event having reached Unity yet (or the
+      // texture is still the old size). Re-publish the size and skip this frame; the view
+      // reallocates the texture and the next frame uploads cleanly.
+      if (vw !== S.videoW || vh !== S.videoH) {
+        S.videoW = vw; S.videoH = vh;
+        S.emit("video-size", vw + "," + vh);
         return 0;
       }
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-      gl.bindTexture(gl.TEXTURE_2D, prev);
-      S.frameDirty = false;
-      return 1;
+      if ((w | 0) !== vw || (h | 0) !== vh) return 0;
+
+      var gl = GLctx;
+      if (!gl || (gl.isContextLost && gl.isContextLost())) return 0;
+
+      var tex = GL.textures[texId];
+      if (!tex) return 0;
+
+      // The upload path is decided per texture, not once per session: a texture Unity
+      // allocated differently (or a restored context handing back the same slot) must be
+      // probed again rather than inheriting a stale decision.
+      var key = texId + "x" + w + "x" + h;
+      if (S.uploadKey !== key) {
+        S.uploadKey = key;
+        S.uploadMode = null;
+        S.uploadFails = 0;
+      }
+
+      var prevTex = gl.getParameter(gl.TEXTURE_BINDING_2D);
+      var prevFlip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+
+      var ok = 0;
+      try {
+        if (S.uploadMode === "teximage") {
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+          ok = 1;
+        } else if (S.uploadMode === "texsubimage") {
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, v);
+          ok = 1;
+        } else {
+          // First frame into this texture: prefer texSubImage2D and verify, so a texture
+          // whose storage was never allocated can still fall back to texImage2D. glGetError
+          // is a sync point, so it is paid once per texture, not once per frame. The drain
+          // is bounded — a lost context can keep reporting an error forever.
+          for (var i = 0; i < 32 && gl.getError() !== gl.NO_ERROR; i++) { }
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, v);
+          if (gl.getError() === gl.NO_ERROR) {
+            S.uploadMode = "texsubimage";
+            ok = 1;
+          } else {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+            if (gl.getError() === gl.NO_ERROR) {
+              S.uploadMode = "teximage";
+              ok = 1;
+            } else {
+              // Neither path worked. Stop paying for the probe after a few frames and keep
+              // the spec-correct call so a transient failure can still recover.
+              S.uploadFails++;
+              if (S.uploadFails === 1) {
+                S.log("[Video] Frame upload failed: neither texSubImage2D nor texImage2D accepted the video.");
+              }
+              if (S.uploadFails >= 10) S.uploadMode = "texsubimage";
+            }
+          }
+        }
+      } catch (e) {
+        S.log("[Video] Frame upload threw: " + e);
+      } finally {
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, prevFlip ? 1 : 0);
+        gl.bindTexture(gl.TEXTURE_2D, prevTex);
+      }
+
+      if (ok) S.frameDirty = false;
+      return ok;
     }
   },
 
@@ -614,8 +684,8 @@ var WebGLRemoteBridgeLib = {
   WebGLRemote_GetVideoHeight: function () { return WebGLRemote.videoH | 0; },
 
   WebGLRemote_UpdateTexture__deps: ['$WebGLRemote'],
-  WebGLRemote_UpdateTexture: function (texId) {
-    return WebGLRemote.updateTexture(texId);
+  WebGLRemote_UpdateTexture: function (texId, w, h) {
+    return WebGLRemote.updateTexture(texId, w, h);
   },
 
   WebGLRemote_SetOverlay__deps: ['$WebGLRemote'],

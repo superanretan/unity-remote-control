@@ -94,11 +94,18 @@ ScreenCaptureKit does **not** exist on visionOS 1–26 — the name in the origi
 ### Video pipeline
 ```
 visionOS:  CMSampleBuffer ─▶ RTCCVPixelBuffer ─▶ RTCVideoFrame ─▶ RTCVideoSource (adaptOutputFormat WxH@fps) ─▶ H.264 HW encoder ─▶ RTP
-browser:   MediaStreamTrack ─▶ hidden <video muted playsinline> ─▶ gl.texImage2D(GL.textures[id]) ─▶ Texture2D ─▶ RawImage
+browser:   MediaStreamTrack ─▶ hidden <video muted playsinline> ─▶ gl.texSubImage2D(GL.textures[id]) ─▶ Texture2D ─▶ RawImage
 ```
 No frame ever crosses into C# on the host. On the controller `RemoteVideoView` creates an RGBA `Texture2D` of the incoming size and the
 `.jslib` copies the newest decoded frame into it (only when `requestVideoFrameCallback` reported a new frame). `_useHtmlOverlay` shows the raw
 `<video>` element on top of the canvas as a debugging fallback.
+
+Unity's WebGL2 backend allocates `Texture2D` storage with `glTexStorage2D`, which makes the texture **immutable**, so the upload must be
+`texSubImage2D` (a `texImage2D` fails with `GL_INVALID_OPERATION: Texture is immutable` and no frame ever lands). `texSubImage2D` also demands
+that the `<video>` matches the texture exactly, so `RemoteVideoView` passes the allocated size down and the `.jslib` skips any frame whose
+resolution has already moved on — the encoder ramps 320x180 → 1280x720 over the first seconds of a session, so this happens on every connect.
+The `.jslib` verifies `texSubImage2D` on the first frame of every texture it uploads into and falls back to `texImage2D` for that
+texture if the storage is mutable (WebGL1).
 
 ---
 
@@ -261,6 +268,7 @@ controller log shows `[DataChannel] Received: [capture] topic=capture value=stre
 | Video track missing | Host log `capture-error`: `-5801` = consent declined, `-5803` = recording failed to start (retry after leaving/entering immersive space), `replaykit-unavailable` = another app records. |
 | `play() blocked` in controller log | Browser autoplay policy — Connect is a click so it normally passes; otherwise click the page. |
 | Black texture but overlay works | GL texture id mismatch — make sure `RemoteVideoView` is on the RawImage GameObject and WebGL 2 is enabled. |
+| Console floods `GL_INVALID_OPERATION: glTexImage2DRobustANGLE: Texture is immutable` and the video stays black | A build older than this fix uploaded frames with `texImage2D` into Unity's immutable (`texStorage2D`) texture. Rebuild with the current Core — the upload path is `texSubImage2D` now. |
 | `DllNotFoundException`/`EntryPointNotFoundException` | `.jslib` platform must be WebGL only; `.mm/.h` must be VisionOS only (both are set in the metas). |
 | Xcode: `LiveKitWebRTC/LiveKitWebRTC.h not found` | SPM package didn't resolve (offline) — File ▸ Packages ▸ Resolve Package Versions. |
 | Xcode: `#error "No WebRTC framework found."` + a cascade of `Unknown type name 'RC_RTC'` | The post-processor never ran. Check the Editor log for `[RemoteControl] No .xcodeproj found` / `UnityFramework target not found`; a build that predates 2.0.1 hit this on every visionOS build because the project was looked up as `Unity-iPhone.xcodeproj`. Rebuild from Unity — do not hand-add the package, the whole wiring is missing. |

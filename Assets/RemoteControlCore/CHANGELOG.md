@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-09-08
+
+### Fixed
+- **The WebGL controller never showed a single video frame.** Unity's WebGL2 backend allocates `Texture2D`
+  storage with `glTexStorage2D`, which makes the texture **immutable**, so the per-frame
+  `gl.texImage2D(..., videoElement)` in `WebGLRemoteBridge.jslib` was rejected with
+  `GL_INVALID_OPERATION: glTexImage2DRobustANGLE: Texture is immutable` — every upload, on every frame.
+  The `RawImage` stayed black while the DataChannel worked perfectly, because commands never touch the
+  texture path. Frames now go in through `texSubImage2D`, the only legal upload into immutable storage;
+  the first frame of each texture is verified with `glGetError` and falls back to `texImage2D` if the
+  storage turns out to be mutable (WebGL1).
+- **Frames were uploaded against a stale resolution.** `texSubImage2D` requires the source video to match
+  the texture exactly, and the visionOS encoder ramps 320x180 → 480x270 → 640x360 → 960x540 → 1280x720 over
+  the first seconds of every session. `RemoteVideoView` now passes the allocated size down and the `.jslib`
+  skips any frame whose resolution has already moved on, re-emitting `video-size` so the texture is
+  reallocated first — the likely source of the one-off
+  `GL_INVALID_VALUE: glCopySubTextureCHROMIUM: Offset overflows texture dimensions` as well.
+- `RemoteVideoView` clears its cached native texture pointer before `Destroy()`ing the `Texture2D`, so an
+  upload can never land in a recycled GL texture id, and the upload path restores the previous texture
+  binding and `UNPACK_FLIP_Y_WEBGL` state even when it throws.
+
 ## [2.0.1] - 2026-09-08
 
 ### Fixed

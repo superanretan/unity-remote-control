@@ -23,7 +23,7 @@ typedef void (*VPR_EventCallback)(const char *type, const char *payload);
 // ───────── lifecycle ─────────
 void VPR_Initialize(VPR_EventCallback callback);
 void VPR_SetVideoConfig(int width, int height, int fps, int bitrateKbps);
-void VPR_SetCaptureBackend(int backend);          // 0 auto, 1 ReplayKit, 2 ScreenCaptureKit
+void VPR_SetCaptureBackend(int backend);          // 0 auto, 1 ReplayKit, 2 ScreenCaptureKit, 3 UnityCamera
 
 // ───────── peer ─────────
 int  VPR_CreatePeer(const char *iceServersJson);  // JSON array of RTCIceServer objects {urls[],username?,credential?} (or legacy URL strings)
@@ -37,6 +37,15 @@ int  VPR_IsPeerConnected(void);
 void VPR_StartCapture(void);
 void VPR_StopCapture(void);
 int  VPR_IsCapturing(void);
+
+// ───────── capture: frames rendered by the app itself ─────────
+// ReplayKit and ScreenCaptureKit capture the app's *window*. A fully immersive Unity app renders
+// through Compositor Services instead, and that composition is not exposed to either API — the
+// stream comes out uniformly dark. With backend 3 the app renders a spectator camera itself and
+// hands the pixels over here.
+
+/// One BGRA32 frame, top-left origin, `stride` bytes per row. `data` is only read during the call.
+void VPR_PushFrameBGRA(const void *data, int width, int height, int stride, int64_t timestampNs);
 
 // ───────── internal (shared between the two .mm files) ─────────
 void VPR_Emit(NSString *type, NSString *payload);

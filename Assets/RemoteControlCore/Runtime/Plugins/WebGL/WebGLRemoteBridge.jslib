@@ -364,7 +364,30 @@ var WebGLRemoteBridgeLib = {
         if (typeof ev.data === "string") S.emit("datachannel-message", ev.data);
       };
 
-      pc.addTransceiver("video", { direction: "recvonly" });
+      var videoTransceiver = pc.addTransceiver("video", { direction: "recvonly" });
+
+      // Ask for H.264 first. The host answers from *this* offer's payload order, so the encoder
+      // factory's preferredCodec on the Vision Pro cannot pick H.264 on its own — without this the
+      // negotiation lands on VP8 and the headset encodes 720p in software (libvpx), which is a lot
+      // of heat for nothing. Best effort: browsers without setCodecPreferences keep their default.
+      try {
+        if (videoTransceiver && videoTransceiver.setCodecPreferences && window.RTCRtpReceiver &&
+            RTCRtpReceiver.getCapabilities) {
+          var caps = RTCRtpReceiver.getCapabilities("video");
+          if (caps && caps.codecs) {
+            var h264 = [], rest = [];
+            caps.codecs.forEach(function (c) {
+              (/h264/i.test(c.mimeType) ? h264 : rest).push(c);
+            });
+            if (h264.length) {
+              videoTransceiver.setCodecPreferences(h264.concat(rest));
+              S.log("[WebRTC] Preferring H.264 (hardware encode on the Vision Pro).");
+            }
+          }
+        }
+      } catch (e) {
+        S.log("[WebRTC] Could not set codec preferences: " + e);
+      }
 
       pc.onicecandidate = function (ev) {
         if (!ev.candidate) return;

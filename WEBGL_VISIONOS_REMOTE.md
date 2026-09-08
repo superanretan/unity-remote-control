@@ -87,13 +87,25 @@ The host sends a full `snapshot` right after the DataChannel opens, then increme
 |---|---|---|
 | **ReplayKit** `RPScreenRecorder.startCapture` | visionOS 1.0+ (deprecated in 27) | Default today. Captures the app's rendered content (windows/volumes/immersive frame buffer), passthrough is not included. First start shows Apple's consent alert. |
 | **ScreenCaptureKit** `SCContentSharingPicker.presentPickerForCurrentApplication` + `SCStream` | visionOS 27+ (beta, Xcode 27) | Apple's replacement. System picker restricted to *this app*. Enable with `RemoteControlVisionOSPostProcessor.EnableScreenCaptureKit = true` (needs the Xcode 27 SDK). |
+| **UnityCamera** — `VisionCameraStreamer` → `VPR_PushFrameBGRA` | any | Not a system capture: the app renders a spectator camera and pushes the pixels itself. **The only backend that works for a fully immersive (Metal / Compositor Services) host** — see the warning below. No consent alert. |
 
-`VisionProWebRtcHost → Capture Backend`: `Auto` (ScreenCaptureKit when the OS has it, else ReplayKit), `ReplayKit`, `ScreenCaptureKit`.
+> **Measured, not assumed:** a fully immersive Unity app renders through Compositor Services, and that
+> composition is not exposed to ReplayKit or ScreenCaptureKit. Both capture the app's *window*, which such an
+> app never draws into, so the stream is a steady 20+ fps of uniformly dark frames — the browser reports
+> `framesDecoded` climbing, `packetsLost 0`, and a centre pixel of `rgba(37,37,37,255)`. Nothing downstream can
+> fix that. An immersive host must use the `UnityCamera` backend. ReplayKit stays correct for a *windowed*
+> visionOS app. The ReplayKit path now logs the pixel format, size and mean luma of its first frame, so this
+> is one line in the host log rather than an afternoon.
+
+`VisionProWebRtcHost → Capture Backend`: `Auto` (ScreenCaptureKit when the OS has it, else ReplayKit), `ReplayKit`, `ScreenCaptureKit`, `UnityCamera`.
 ScreenCaptureKit does **not** exist on visionOS 1–26 — the name in the original brief maps to ReplayKit there.
 
 ### Video pipeline
 ```
-visionOS:  CMSampleBuffer ─▶ RTCCVPixelBuffer ─▶ RTCVideoFrame ─▶ RTCVideoSource (adaptOutputFormat WxH@fps) ─▶ H.264 HW encoder ─▶ RTP
+visionOS (system capture, windowed app):
+           CMSampleBuffer ─▶ RTCCVPixelBuffer ─▶ RTCVideoFrame ─▶ RTCVideoSource (adaptOutputFormat WxH@fps) ─▶ encoder ─▶ RTP
+visionOS (UnityCamera, immersive app):
+           spectator Camera ─▶ RenderTexture ─▶ AsyncGPUReadback ─▶ VPR_PushFrameBGRA ─▶ CVPixelBuffer (pooled, IOSurface) ─▶ same path
 browser:   MediaStreamTrack ─▶ hidden <video muted playsinline> ─▶ gl.texSubImage2D(GL.textures[id]) ─▶ Texture2D ─▶ RawImage
 ```
 No frame ever crosses into C# on the host. On the controller `RemoteVideoView` creates an RGBA `Texture2D` of the incoming size and the
@@ -232,6 +244,8 @@ Disconnect (either side / tab closed (beforeunload + pagehide) / Wi-Fi lost / IC
 
 ## 8. Known limitations
 * One controller per host.
+* ReplayKit and ScreenCaptureKit cannot capture a fully immersive (Compositor Services) app — use the `UnityCamera` backend there. Passthrough is never included in any backend.
+* `UnityCamera` costs one extra scene render plus one GPU readback per streamed frame (at the configured size and rate, not at display rate). The readback crosses into a pinned `NativeArray`; no managed copy is made. A zero-copy Metal blit into the `CVPixelBuffer` is the natural follow-up if thermals demand it.
 * Capture cannot start silently on the very first run — Apple's consent UI must be accepted on the Vision Pro.
 * ScreenCaptureKit backend requires visionOS 27 + Xcode 27 (beta at the time of writing); ReplayKit is deprecated in 27 but works.
 * `com.unity.webrtc` does not support visionOS — hence the native bridge and the external xcframework (SPM, network needed at first build).
@@ -268,6 +282,10 @@ controller log shows `[DataChannel] Received: [capture] topic=capture value=stre
 | Video track missing | Host log `capture-error`: `-5801` = consent declined, `-5803` = recording failed to start (retry after leaving/entering immersive space), `replaykit-unavailable` = another app records. |
 | `play() blocked` in controller log | Browser autoplay policy — Connect is a click so it normally passes; otherwise click the page. |
 | Black texture but overlay works | GL texture id mismatch — make sure `RemoteVideoView` is on the RawImage GameObject and WebGL 2 is enabled. |
+| Stream connects and decodes but the picture is uniformly dark, overlay included | The host is a fully immersive app and the capture backend is ReplayKit/ScreenCaptureKit, which capture its empty window. Switch `Capture Backend` to `UnityCamera` and put a `VisionCameraStreamer` in the host scene. Confirm with the host log line `[ScreenCapture] First frame: … mean sample N` — a mean near 0 is the captured surface itself being black. |
+| `capture` reports `streaming` but no frame ever arrives | `Capture Backend` is `UnityCamera` and no `VisionCameraStreamer` is in the scene — the host logs a warning saying exactly this. |
+| Picture arrives upside down | Tick `VisionCameraStreamer → Flip Vertically` (GPU readback row order is platform-dependent). |
+| `webrtc-internals` shows VP8 / `libvpx` instead of H.264 | The controller now asks for H.264 first via `setCodecPreferences`, so this means the browser offered no H.264 or the host has no H.264 encoder. VP8 works but the headset then encodes in software, which is a lot of heat. |
 | Console floods `GL_INVALID_OPERATION: glTexImage2DRobustANGLE: Texture is immutable` and the video stays black | A build older than this fix uploaded frames with `texImage2D` into Unity's immutable (`texStorage2D`) texture. Rebuild with the current Core — the upload path is `texSubImage2D` now. |
 | `DllNotFoundException`/`EntryPointNotFoundException` | `.jslib` platform must be WebGL only; `.mm/.h` must be VisionOS only (both are set in the metas). |
 | Xcode: `LiveKitWebRTC/LiveKitWebRTC.h not found` | SPM package didn't resolve (offline) — File ▸ Packages ▸ Resolve Package Versions. |

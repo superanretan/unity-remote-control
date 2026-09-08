@@ -552,6 +552,15 @@ Najprościej wrzucić prefab `RemoteControl_VisionProHost`. Ręcznie to trzy kom
 | `VisionProSignalingClient` | `Network Config`, `Log Channel`, `Auto Connect`, opcjonalnie `Device Name Override` |
 | `VisionProWebRtcHost` | `Network Config`, `Signaling` (powyższy komponent), `Command Received Channel`, `On Client Connected Channel`, `On Client Disconnected Channel`, `Host Message Send Channel`, `Log Channel`, `Capture Backend` = Auto, `Auto Start Capture` = on, `Send Snapshot On Connect` = on, `Ack Commands` = on |
 | `CommandProcessor` | `Command Received Channel`, `Handler Registry`, `Target Registry`, `Log Channel` |
+| `VisionCameraStreamer` | `Network Config`, `Log Channel`; opcjonalnie `Source Camera`, `Follow Target`, `Field Of View`, `Culling Mask` |
+
+**Jeśli aplikacja hosta jest w pełni immersyjna (Metal / Compositor Services), ustaw `Capture Backend` na
+`UnityCamera`.** ReplayKit i ScreenCaptureKit łapią *okno* aplikacji, a immersyjna aplikacja nigdy do niego nie
+rysuje — strumień idzie wtedy równomiernie czarny, mimo że przeglądarka liczy dekodowane klatki. `UnityCamera`
+renderuje osobną kamerę obserwatora i wysyła jej piksele; `VisionCameraStreamer` musi być w scenie, inaczej
+host zgłosi `streaming` i nie wyśle ani jednej klatki (i zaloguje o tym ostrzeżenie). Domyślnie kamera
+obserwatora podąża za `Camera.main`, czyli operator widzi z grubsza to co użytkownik gogli. Dla aplikacji
+**okienkowej** zostaw `Auto`.
 
 `NetworkConfig` musi być **tym samym** assetem co w kontrolerze, z tym samym adresem i tokenem. Jeśli host
 i kontroler to dwa różne projekty Unity, po prostu ustaw w obu identyczne wartości.

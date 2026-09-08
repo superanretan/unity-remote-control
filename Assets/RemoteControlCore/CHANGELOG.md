@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-09-08
+
+### Added
+- **`UnityCamera` capture backend + `VisionCameraStreamer`.** ReplayKit and ScreenCaptureKit capture the
+  app's *window*. A fully immersive Unity app renders through Compositor Services and never draws into that
+  window, so the browser received a steady 21 fps of uniformly dark frames — measured end to end: the GL
+  upload was proven correct (a pixel read back out of the Unity texture before the first upload was the
+  magenta the app wrote, after it `rgba(37,37,37,255)`), the raw `<video>` overlay was equally black, and
+  `webrtc-internals` reported 2446 frames decoded with zero loss. No amount of work downstream fixes a black
+  source. The new backend skips the system capture: `VisionCameraStreamer` renders a spectator camera into a
+  `RenderTexture`, reads it back with `AsyncGPUReadback` and pushes the pixels through the new
+  `VPR_PushFrameBGRA` into a pooled IOSurface-backed `CVPixelBuffer`. By default the camera follows
+  `Camera.main`, so the operator sees roughly what the wearer sees; assign `Source Camera` for a fixed view.
+  It never touches the XR camera — a `targetTexture` there would break stereo rendering.
+- **The ReplayKit path describes its first frame** (pixel format, size, plane count, mean luma). A mean near
+  zero says the captured surface itself is black, which is one log line instead of an afternoon.
+
+### Changed
+- **The controller asks for H.264 first.** The offer comes from the browser, so the host's
+  `preferredCodec` could never win: negotiation landed on VP8 and the Vision Pro encoded 720p in software
+  (`libvpx`). `WebGLRemoteBridge` now reorders the video transceiver's codecs with `setCodecPreferences`.
+
 ## [2.0.3] - 2026-09-08
 
 ### Added

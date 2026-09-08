@@ -67,6 +67,8 @@ void VPR_GetVideoConfig(int *width, int *height, int *fps)
 - (BOOL)sendText:(NSString *)text;
 - (void)close;
 - (void)pushSampleBuffer:(CMSampleBufferRef)sampleBuffer;
+- (void)pushFrameBGRA:(const void *)data width:(int)width height:(int)height
+               stride:(int)stride timestampNs:(int64_t)timestampNs;
 @end
 
 static RCPeerHost *g_host = nil;
@@ -94,6 +96,44 @@ static NSString *RCConnectionStateName(RC_RTC(PeerConnectionState) state)
         case RC_RTC(PeerConnectionStateClosed):       return @"closed";
     }
     return @"unknown";
+}
+
+// ───────── BGRA frame pool (app-rendered frames) ─────────
+// One pool, recreated when the frame size changes. IOSurface-backed so WebRTC can hand the buffer
+// to the encoder without another copy.
+
+static CVPixelBufferPoolRef g_bgraPool = NULL;
+static int g_bgraPoolW = 0;
+static int g_bgraPoolH = 0;
+
+static CVPixelBufferRef RCTakePooledBGRA(int width, int height)
+{
+    if (!g_bgraPool || g_bgraPoolW != width || g_bgraPoolH != height) {
+        if (g_bgraPool) { CVPixelBufferPoolRelease(g_bgraPool); g_bgraPool = NULL; }
+        NSDictionary *bufferAttrs = @{
+            (id)kCVPixelBufferPixelFormatTypeKey:   @(kCVPixelFormatType_32BGRA),
+            (id)kCVPixelBufferWidthKey:             @(width),
+            (id)kCVPixelBufferHeightKey:            @(height),
+            (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+            (id)kCVPixelBufferMetalCompatibilityKey:  @YES,
+        };
+        NSDictionary *poolAttrs = @{ (id)kCVPixelBufferPoolMinimumBufferCountKey: @3 };
+        if (CVPixelBufferPoolCreate(kCFAllocatorDefault,
+                                    (__bridge CFDictionaryRef)poolAttrs,
+                                    (__bridge CFDictionaryRef)bufferAttrs,
+                                    &g_bgraPool) != kCVReturnSuccess) {
+            g_bgraPool = NULL;
+            return NULL;
+        }
+        g_bgraPoolW = width;
+        g_bgraPoolH = height;
+    }
+
+    CVPixelBufferRef buffer = NULL;
+    if (CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, g_bgraPool, &buffer) != kCVReturnSuccess) {
+        return NULL;
+    }
+    return buffer;
 }
 
 @implementation RCPeerHost
@@ -301,6 +341,47 @@ static NSString *RCConnectionStateName(RC_RTC(PeerConnectionState) state)
     [source capturer:capturer didCaptureVideoFrame:frame];
 }
 
+- (void)pushFrameBGRA:(const void *)data width:(int)width height:(int)height
+               stride:(int)stride timestampNs:(int64_t)timestampNs
+{
+    RC_RTC(VideoSource) *source = self.videoSource;
+    RC_RTC(VideoCapturer) *capturer = self.videoCapturer;
+    if (!source || !capturer || !self.connected) return;
+    if (!data || width <= 0 || height <= 0 || stride < width * 4) return;
+
+    // Same pacing as the ReplayKit path: never hand the encoder more than the configured rate.
+    int64_t minIntervalNs = (int64_t)(1e9 / (double)MAX(g_videoFps, 1)) * 9 / 10;
+    if (self.lastFrameNs != 0 && timestampNs - self.lastFrameNs < minIntervalNs) return;
+    self.lastFrameNs = timestampNs;
+
+    CVPixelBufferRef pixelBuffer = RCTakePooledBGRA(width, height);
+    if (!pixelBuffer) return;
+
+    if (CVPixelBufferLockBaseAddress(pixelBuffer, 0) != kCVReturnSuccess) {
+        CVPixelBufferRelease(pixelBuffer);
+        return;
+    }
+    uint8_t *dst = (uint8_t *)CVPixelBufferGetBaseAddress(pixelBuffer);
+    size_t dstStride = CVPixelBufferGetBytesPerRow(pixelBuffer);
+    const uint8_t *src = (const uint8_t *)data;
+    if (dst) {
+        size_t rowBytes = (size_t)width * 4;
+        for (int y = 0; y < height; y++) {
+            memcpy(dst + (size_t)y * dstStride, src + (size_t)y * (size_t)stride, rowBytes);
+        }
+    }
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+
+    if (dst) {
+        RC_RTC(CVPixelBuffer) *rtcBuffer = [[RC_RTC(CVPixelBuffer) alloc] initWithPixelBuffer:pixelBuffer];
+        RC_RTC(VideoFrame) *frame = [[RC_RTC(VideoFrame) alloc] initWithBuffer:rtcBuffer
+                                                                     rotation:RC_RTC(VideoRotation_0)
+                                                                  timeStampNs:timestampNs];
+        [source capturer:capturer didCaptureVideoFrame:frame];
+    }
+    CVPixelBufferRelease(pixelBuffer);
+}
+
 // ───────── RTCPeerConnectionDelegate ─────────
 
 - (void)peerConnection:(RC_RTC(PeerConnection) *)peerConnection didChangeSignalingState:(RC_RTC(SignalingState))stateChanged {}
@@ -468,6 +549,12 @@ void VPR_PushSampleBuffer(CMSampleBufferRef sampleBuffer)
 {
     RCPeerHost *host = g_host;
     if (host && sampleBuffer) [host pushSampleBuffer:sampleBuffer];
+}
+
+void VPR_PushFrameBGRA(const void *data, int width, int height, int stride, int64_t timestampNs)
+{
+    RCPeerHost *host = g_host;
+    if (host) [host pushFrameBGRA:data width:width height:height stride:stride timestampNs:timestampNs];
 }
 
 } // extern "C"

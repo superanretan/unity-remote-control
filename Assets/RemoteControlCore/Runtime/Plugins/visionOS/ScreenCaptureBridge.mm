@@ -9,6 +9,11 @@
 //                — visionOS 27+ (beta). Requires Xcode 27 SDK. Enable with the preprocessor define
 //                VPR_ENABLE_SCREENCAPTUREKIT=1 (set by RemoteControlVisionOSPostProcessor).
 //                Shows Apple's system picker limited to this app's windows/layers.
+//   • UnityCamera — not a system capture at all: the app renders a spectator camera and pushes the
+//                pixels through VPR_PushFrameBGRA. Measured: a fully immersive Unity app renders
+//                through Compositor Services, ReplayKit captures its (empty) window instead, and
+//                the browser receives a steady stream of uniformly dark frames. This backend is the
+//                only one that streams what an immersive app actually draws.
 //
 // Apple never lets a remote controller silently start recording: the host user must accept the
 // system consent UI the first time. Capture therefore starts only after the DataChannel is open
@@ -32,6 +37,7 @@ typedef NS_ENUM(int, VPRCaptureBackend) {
     VPRCaptureBackendAuto = 0,
     VPRCaptureBackendReplayKit = 1,
     VPRCaptureBackendScreenCaptureKit = 2,
+    VPRCaptureBackendUnityCamera = 3,
 };
 
 static VPRCaptureBackend g_backend = VPRCaptureBackendAuto;
@@ -43,6 +49,53 @@ static int g_activeBackend = 0;   // backend that actually started
 static uint32_t g_startGeneration = 0;
 
 static void VPR_CaptureLog(NSString *message) { VPR_Emit(@"log", message); }
+
+// Describes the first captured frame once: pixel format, size, and the mean of a 16x16 luma grid.
+// A mean of ~0 proves the capture source itself is dark, which no amount of work downstream fixes.
+static BOOL g_describedFrame = NO;
+
+static void VPR_DescribeFirstFrame(CMSampleBufferRef sampleBuffer)
+{
+    if (g_describedFrame) return;
+    g_describedFrame = YES;
+
+    CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+    if (!buffer) { VPR_CaptureLog(@"[ScreenCapture] First frame carries no image buffer."); return; }
+
+    OSType fmt = CVPixelBufferGetPixelFormatType(buffer);
+    size_t width = CVPixelBufferGetWidth(buffer);
+    size_t height = CVPixelBufferGetHeight(buffer);
+    size_t planes = CVPixelBufferGetPlaneCount(buffer);
+    char fourcc[5] = { (char)((fmt >> 24) & 0xFF), (char)((fmt >> 16) & 0xFF),
+                       (char)((fmt >> 8) & 0xFF), (char)(fmt & 0xFF), 0 };
+
+    long mean = -1;
+    if (CVPixelBufferLockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly) == kCVReturnSuccess) {
+        const uint8_t *base = (const uint8_t *)(planes > 0 ? CVPixelBufferGetBaseAddressOfPlane(buffer, 0)
+                                                           : CVPixelBufferGetBaseAddress(buffer));
+        size_t stride = planes > 0 ? CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+                                   : CVPixelBufferGetBytesPerRow(buffer);
+        // 420v/420f keep luma in plane 0 at one byte per pixel; BGRA/ARGB take the first channel.
+        size_t step = (fmt == kCVPixelFormatType_32BGRA || fmt == kCVPixelFormatType_32ARGB) ? 4 : 1;
+        if (base && width > 16 && height > 16) {
+            long sum = 0;
+            for (int gy = 0; gy < 16; gy++) {
+                for (int gx = 0; gx < 16; gx++) {
+                    size_t x = (width  / 17) * (size_t)(gx + 1);
+                    size_t y = (height / 17) * (size_t)(gy + 1);
+                    sum += base[y * stride + x * step];
+                }
+            }
+            mean = sum / 256;
+        }
+        CVPixelBufferUnlockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
+    }
+
+    VPR_CaptureLog([NSString stringWithFormat:
+        @"[ScreenCapture] First frame: %s %zux%zu, %zu plane(s), mean sample %ld "
+        @"(near 0 means the captured surface itself is black).",
+        fourcc, width, height, planes, mean]);
+}
 
 // ═════════════════════════════ ReplayKit ═════════════════════════════
 
@@ -69,6 +122,7 @@ static void VPR_StartReplayKit(void)
             return;
         }
         if (bufferType == RPSampleBufferTypeVideo && g_capturing) {
+            VPR_DescribeFirstFrame(sampleBuffer);
             VPR_PushSampleBuffer(sampleBuffer);
         }
     } completionHandler:^(NSError *error) {
@@ -279,6 +333,14 @@ void VPR_StartCapture(void)
     dispatch_async(dispatch_get_main_queue(), ^{
         if (g_capturing || g_starting) return;
 
+        if (g_backend == VPRCaptureBackendUnityCamera) {
+            // No system capture and no consent alert: VisionCameraStreamer pushes rendered frames.
+            g_capturing = YES;
+            g_activeBackend = VPRCaptureBackendUnityCamera;
+            VPR_Emit(@"capture-started", @"unity-camera");
+            return;
+        }
+
         BOOL useSck = (g_backend == VPRCaptureBackendScreenCaptureKit) ||
                       (g_backend == VPRCaptureBackendAuto && VPR_ScreenCaptureKitAvailable());
 
@@ -306,6 +368,13 @@ void VPR_StopCapture(void)
     dispatch_async(dispatch_get_main_queue(), ^{
         g_startGeneration++;   // invalidates any start still waiting for consent / completion
         g_starting = NO;
+        g_describedFrame = NO; // describe the first frame of the next session too
+        if (g_activeBackend == VPRCaptureBackendUnityCamera) {
+            g_capturing = NO;
+            g_activeBackend = 0;
+            VPR_Emit(@"capture-stopped", @"unity-camera");
+            return;
+        }
 #if VPR_HAS_SCK
         if (g_activeBackend == VPRCaptureBackendScreenCaptureKit) {
             if (@available(visionOS 27.0, iOS 27.0, *)) { [g_sckSource stop]; }

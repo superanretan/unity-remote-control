@@ -49,6 +49,7 @@ namespace SuperAnretan.RemoteControl
         [DllImport("__Internal")] private static extern void VPR_StartCapture();
         [DllImport("__Internal")] private static extern void VPR_StopCapture();
         [DllImport("__Internal")] private static extern int  VPR_IsCapturing();
+        [DllImport("__Internal")] private static extern void VPR_PushFrameBGRA(IntPtr data, int width, int height, int stride, long timestampNs);
 #else
         /// <summary>True only inside a visionOS device build.</summary>
         public static bool IsSupported => false;
@@ -65,12 +66,20 @@ namespace SuperAnretan.RemoteControl
         private static void VPR_StartCapture() { Emit("capture-error", "native-unavailable"); }
         private static void VPR_StopCapture() { }
         private static int  VPR_IsCapturing() => 0;
+        private static void VPR_PushFrameBGRA(IntPtr data, int width, int height, int stride, long timestampNs) { }
 
         private static void Emit(string type, string payload) => _queue.Enqueue((type, payload));
 #endif
 
         /// <summary>Which native capture API to use. Auto = ScreenCaptureKit when the OS has it, else ReplayKit.</summary>
-        public enum CaptureBackend { Auto = 0, ReplayKit = 1, ScreenCaptureKit = 2 }
+        /// <summary>
+        /// Where the streamed frames come from.
+        /// <para><b>UnityCamera</b> is the only backend that works for a fully immersive app: Unity
+        /// renders through Compositor Services, which neither ReplayKit nor ScreenCaptureKit can see,
+        /// so a system capture yields uniformly dark frames. It needs a
+        /// <see cref="VisionCameraStreamer"/> in the scene and shows no consent alert.</para>
+        /// </summary>
+        public enum CaptureBackend { Auto = 0, ReplayKit = 1, ScreenCaptureKit = 2, UnityCamera = 3 }
 
         public static void Initialize()
         {
@@ -138,5 +147,13 @@ namespace SuperAnretan.RemoteControl
         public static void StartCapture() => VPR_StartCapture();
         public static void StopCapture() => VPR_StopCapture();
         public static bool IsCapturing => VPR_IsCapturing() != 0;
+
+        /// <summary>
+        /// Hands one BGRA32 frame (top-left origin) to the native video source. <paramref name="data"/>
+        /// is read synchronously and never retained, so the buffer may be reused straight after.
+        /// Used by <see cref="VisionCameraStreamer"/> for the UnityCamera backend.
+        /// </summary>
+        public static void PushFrameBGRA(IntPtr data, int width, int height, int stride, long timestampNs) =>
+            VPR_PushFrameBGRA(data, width, height, stride, timestampNs);
     }
 }

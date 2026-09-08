@@ -42,7 +42,9 @@ namespace SuperAnretan.RemoteControl
         [SerializeField] private StringEventChannel _hostMessageSendChannel;
 
         [Header("Capture")]
-        [Tooltip("Auto = ScreenCaptureKit on visionOS 27+, otherwise ReplayKit.")]
+        [Tooltip("Auto = ScreenCaptureKit on visionOS 27+, otherwise ReplayKit — both capture the app's " +
+                 "window, which a fully immersive app never draws into, so the stream comes out black. " +
+                 "For an immersive host pick UnityCamera and put a VisionCameraStreamer in the scene.")]
         [SerializeField] private VisionProNativeBridge.CaptureBackend _captureBackend = VisionProNativeBridge.CaptureBackend.Auto;
 
         [Tooltip("Start screen capture as soon as the DataChannel opens (the system consent UI appears on first use).")]
@@ -233,6 +235,12 @@ namespace SuperAnretan.RemoteControl
                 VisionProNativeBridge.SetVideoConfig(_networkConfig.VideoWidth, _networkConfig.VideoHeight,
                     _networkConfig.VideoFps, _networkConfig.VideoBitrateKbps);
             VisionProNativeBridge.SetCaptureBackend(_captureBackend);
+            if (_captureBackend == VisionProNativeBridge.CaptureBackend.UnityCamera &&
+                FindAnyObjectByType<VisionCameraStreamer>() == null)
+            {
+                Log("[ScreenCapture] WARNING — capture backend is UnityCamera but no VisionCameraStreamer " +
+                    "is in the scene: capture will report streaming and no frame will ever be sent.");
+            }
 
             Log($"[WebRTC] Creating peer for controller {_controllerId}");
             if (!VisionProNativeBridge.CreatePeer(_networkConfig != null ? _networkConfig.IceServersJson() : "[]"))

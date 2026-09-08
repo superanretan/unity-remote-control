@@ -204,6 +204,12 @@ namespace SuperAnretan.RemoteControl.Editor
                 SetField(processor, "_targetRegistry", LoadSo("TargetRegistry"));
                 SetField(processor, "_logChannel", LoadSo("LogChannel"));
 
+                // Ships wired but idle: it only renders once the capture backend is UnityCamera,
+                // which an immersive host needs because the system capture APIs return black frames.
+                var streamer = root.AddComponent<VisionCameraStreamer>();
+                SetField(streamer, "_networkConfig", LoadSo("NetworkConfig"));
+                SetField(streamer, "_logChannel", LoadSo("LogChannel"));
+
                 SavePrefab(root, VisionProHostPrefabPath);
             }
             finally { UnityEngine.Object.DestroyImmediate(root); }

@@ -42,9 +42,9 @@ namespace SuperAnretan.RemoteControl
         [SerializeField] private StringEventChannel _hostMessageSendChannel;
 
         [Header("Capture")]
-        [Tooltip("Auto = ScreenCaptureKit on visionOS 27+, otherwise ReplayKit — both capture the app's " +
-                 "window, which a fully immersive app never draws into, so the stream comes out black. " +
-                 "For an immersive host pick UnityCamera and put a VisionCameraStreamer in the scene.")]
+        [Tooltip("Auto picks UnityCamera when a VisionCameraStreamer is in the scene, otherwise " +
+                 "ReplayKit. ReplayKit captures the app's window, which a fully immersive app never " +
+                 "draws into — the stream would come out black. UnityCamera streams what the app renders.")]
         [SerializeField] private VisionProNativeBridge.CaptureBackend _captureBackend = VisionProNativeBridge.CaptureBackend.Auto;
 
         [Tooltip("Start screen capture as soon as the DataChannel opens (the system consent UI appears on first use).")]
@@ -234,13 +234,7 @@ namespace SuperAnretan.RemoteControl
             if (_networkConfig != null)
                 VisionProNativeBridge.SetVideoConfig(_networkConfig.VideoWidth, _networkConfig.VideoHeight,
                     _networkConfig.VideoFps, _networkConfig.VideoBitrateKbps);
-            VisionProNativeBridge.SetCaptureBackend(_captureBackend);
-            if (_captureBackend == VisionProNativeBridge.CaptureBackend.UnityCamera &&
-                FindAnyObjectByType<VisionCameraStreamer>() == null)
-            {
-                Log("[ScreenCapture] WARNING — capture backend is UnityCamera but no VisionCameraStreamer " +
-                    "is in the scene: capture will report streaming and no frame will ever be sent.");
-            }
+            VisionProNativeBridge.SetCaptureBackend(ResolveCaptureBackend());
 
             Log($"[WebRTC] Creating peer for controller {_controllerId}");
             if (!VisionProNativeBridge.CreatePeer(_networkConfig != null ? _networkConfig.IceServersJson() : "[]"))
@@ -336,6 +330,32 @@ namespace SuperAnretan.RemoteControl
                     if (HasSession && !_connected) EndSession("native-error");
                     break;
             }
+        }
+
+        /// <summary>
+        /// Auto means "stream what this app can actually show". A ReplayKit capture of a fully
+        /// immersive app returns its empty window — a black stream — so the presence of a
+        /// <see cref="VisionCameraStreamer"/> decides: with one in the scene the app streams its own
+        /// rendering, without one the system capture is the only thing left to try. An explicitly
+        /// chosen backend is never overridden.
+        /// </summary>
+        private VisionProNativeBridge.CaptureBackend ResolveCaptureBackend()
+        {
+            bool hasStreamer = FindAnyObjectByType<VisionCameraStreamer>() != null;
+
+            if (_captureBackend == VisionProNativeBridge.CaptureBackend.Auto && hasStreamer)
+            {
+                Log("[ScreenCapture] Auto → UnityCamera (VisionCameraStreamer found in the scene).");
+                return VisionProNativeBridge.CaptureBackend.UnityCamera;
+            }
+
+            if (_captureBackend == VisionProNativeBridge.CaptureBackend.UnityCamera && !hasStreamer)
+            {
+                Log("[ScreenCapture] WARNING — capture backend is UnityCamera but no VisionCameraStreamer " +
+                    "is in the scene: capture will report streaming and no frame will ever be sent.");
+            }
+
+            return _captureBackend;
         }
 
         private void OnCaptureState(string state)

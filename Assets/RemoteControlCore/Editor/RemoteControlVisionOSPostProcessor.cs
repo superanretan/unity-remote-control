@@ -12,7 +12,7 @@ namespace SuperAnretan.RemoteControl.Editor
     /// <summary>
     /// Wires the generated Xcode project for the Vision Pro host:
     ///   • adds the LiveKitWebRTC Swift package (WebRTC.xcframework with visionOS slices) to UnityFramework
-    ///   • links ReplayKit (and ScreenCaptureKit when enabled)
+    ///   • links ReplayKit
     ///   • adds the Info.plist usage descriptions the OS asks for
     /// Idempotent — safe to run on "Append" builds.
     /// </summary>
@@ -22,12 +22,6 @@ namespace SuperAnretan.RemoteControl.Editor
         public const string WebRtcPackageUrl = "https://github.com/livekit/webrtc-xcframework";
         public const string WebRtcPackageVersion = "150.7871.01";
         public const string WebRtcProductName = "LiveKitWebRTC";
-
-        /// <summary>
-        /// Compile the ScreenCaptureKit backend. Requires the Xcode 27 SDK (visionOS 27 beta).
-        /// Off by default so builds with Xcode 16/26 keep working (ReplayKit path).
-        /// </summary>
-        public const bool EnableScreenCaptureKit = false;
 
         [PostProcessBuild(100)]
         public static void OnPostProcessBuild(BuildTarget target, string buildPath)
@@ -65,12 +59,6 @@ namespace SuperAnretan.RemoteControl.Editor
             project.AddFrameworkToProject(frameworkTarget, "CoreMedia.framework", false);
             project.AddFrameworkToProject(frameworkTarget, "CoreVideo.framework", false);
 
-            if (EnableScreenCaptureKit)
-            {
-                project.AddFrameworkToProject(frameworkTarget, "ScreenCaptureKit.framework", true);
-                project.AddBuildProperty(frameworkTarget, "GCC_PREPROCESSOR_DEFINITIONS", "VPR_ENABLE_SCREENCAPTUREKIT=1");
-            }
-
             project.AddBuildProperty(frameworkTarget, "CLANG_ENABLE_MODULES", "YES");
             project.WriteToFile(projectPath);
 
@@ -90,8 +78,8 @@ namespace SuperAnretan.RemoteControl.Editor
                 plist.WriteToFile(plistPath);
             }
 
-            Debug.Log($"[RemoteControl] visionOS Xcode project configured: {WebRtcProductName} {WebRtcPackageVersion}, ReplayKit" +
-                      (EnableScreenCaptureKit ? ", ScreenCaptureKit" : "") + $" (main target {mainTarget}).");
+            Debug.Log($"[RemoteControl] visionOS Xcode project configured: {WebRtcProductName} " +
+                      $"{WebRtcPackageVersion}, ReplayKit (main target {mainTarget}).");
         }
 
         /// <summary>

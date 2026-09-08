@@ -11,10 +11,12 @@ namespace SuperAnretan.RemoteControl
     /// VisionScreenCapture.StopCapture();
     /// </code>
     ///
-    /// Backend: ReplayKit <c>RPScreenRecorder.startCapture</c> (visionOS 1.0+, deprecated in 27)
-    /// or ScreenCaptureKit <c>SCContentSharingPicker.presentForCurrentApplication</c> (visionOS 27+).
-    /// Both capture only what the app renders — no passthrough, no enterprise entitlement.
-    /// The first start shows Apple's consent UI; it cannot be bypassed.
+    /// Backend: ReplayKit <c>RPScreenRecorder.startCapture</c> (visionOS 1.0+, deprecated in 27),
+    /// which captures the app's window and therefore only suits a windowed app; the first start
+    /// shows Apple's consent UI and it cannot be bypassed. An immersive app renders through
+    /// Compositor Services, which no system capture API sees — it streams its own spectator camera
+    /// instead (<see cref="VisionCameraStreamer"/>), and then this class only starts and stops the
+    /// hand-off. No passthrough in any case, and no enterprise entitlement.
     /// </summary>
     public static class VisionScreenCapture
     {

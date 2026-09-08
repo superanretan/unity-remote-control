@@ -365,6 +365,9 @@ Zaznacz `Assets/RemoteControl/SO/NetworkConfig.asset` i ustaw:
 | **Signaling Token** | to samo co `ROOM_TOKEN` na serwerze |
 | **Device Name** | nazwa hosta na liście, np. `Vision Pro Office` |
 | **Heartbeat Interval** | 2 |
+| **Video Width / Height** | 960 / 540 — sufit dla podglądu; headset renderuje dodatkowy przebieg w tym rozmiarze |
+| **Video Fps** | 15 — płynne dość, a kosztuje połowę tego co 30 |
+| **Video Bitrate Kbps** | 1200 |
 | **Device Timeout** | 15 |
 | **Ice Server Entries** | jeden wpis STUN wystarcza w tej samej sieci Wi-Fi |
 
@@ -554,13 +557,18 @@ Najprościej wrzucić prefab `RemoteControl_VisionProHost`. Ręcznie to trzy kom
 | `CommandProcessor` | `Command Received Channel`, `Handler Registry`, `Target Registry`, `Log Channel` |
 | `VisionCameraStreamer` | `Network Config`, `Log Channel`; opcjonalnie `Source Camera`, `Follow Target`, `Field Of View`, `Culling Mask` |
 
-**Jeśli aplikacja hosta jest w pełni immersyjna (Metal / Compositor Services), ustaw `Capture Backend` na
-`UnityCamera`.** ReplayKit i ScreenCaptureKit łapią *okno* aplikacji, a immersyjna aplikacja nigdy do niego nie
-rysuje — strumień idzie wtedy równomiernie czarny, mimo że przeglądarka liczy dekodowane klatki. `UnityCamera`
-renderuje osobną kamerę obserwatora i wysyła jej piksele; `VisionCameraStreamer` musi być w scenie, inaczej
-host zgłosi `streaming` i nie wyśle ani jednej klatki (i zaloguje o tym ostrzeżenie). Domyślnie kamera
-obserwatora podąża za `Camera.main`, czyli operator widzi z grubsza to co użytkownik gogli. Dla aplikacji
-**okienkowej** zostaw `Auto`.
+**Jeśli aplikacja hosta jest w pełni immersyjna (Metal / Compositor Services), obraz musi iść z
+`VisionCameraStreamer`.** ReplayKit łapie *okno* aplikacji, a immersyjna aplikacja nigdy do niego nie rysuje —
+strumień idzie wtedy równomiernie czarny, mimo że przeglądarka liczy dekodowane klatki. Wystarczy dodać
+komponent do scenki: `Capture Backend` = `Auto` **sam** wybierze wtedy `UnityCamera` i napisze o tym w logu.
+Domyślnie kamera obserwatora podąża za `Camera.main`, czyli operator widzi z grubsza to co użytkownik gogli;
+`Source Camera` daje stały widok (jej ustawienia są kopiowane, Twoja kamera w scenie zostaje nietknięta).
+Dla aplikacji **okienkowej** nie dodawaj streamera — `Auto` zostanie przy ReplayKicie.
+
+Ten strumień kosztuje headset jeden dodatkowy render na klatkę, więc trzymaj `NetworkConfig` nisko:
+**960x540, 15 fps, 1200 kbit/s** to sufit dla podglądu, a `Culling Mask` na streamerze to najtańsza
+oszczędność jaka tu istnieje. Kamera obserwatora jest wyłączona i renderowana tylko na te klatki, które
+faktycznie lecą do przeglądarki — bez postprocesu, bez MSAA, bez HDR i bez cieni.
 
 `NetworkConfig` musi być **tym samym** assetem co w kontrolerze, z tym samym adresem i tokenem. Jeśli host
 i kontroler to dwa różne projekty Unity, po prostu ustaw w obu identyczne wartości.
@@ -614,10 +622,11 @@ Format koperty i pełna lista typów: [REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.m
 Build robisz na Macu z Xcode. `RemoteControlVisionOSPostProcessor` sam dodaje pakiet SPM z WebRTC, linkuje
 `ReplayKit`, `CoreMedia`, `CoreVideo` i wpisuje `NSLocalNetworkUsageDescription` oraz
 `NSScreenCaptureUsageDescription` do Info.plist. W Xcode ustawiasz tylko Team i signing. Szczegóły i wariant
-ze ScreenCaptureKit: [WEBGL_VISIONOS_REMOTE.md](WEBGL_VISIONOS_REMOTE.md) §4.
+o backendach przechwytywania: [WEBGL_VISIONOS_REMOTE.md](WEBGL_VISIONOS_REMOTE.md) §4.
 
-Pierwszy start capture pokazuje systemową zgodę na nagrywanie ekranu. Nie da się jej pominąć. Nagrywany
-jest tylko obraz renderowany przez aplikację, bez passthrough.
+Pierwszy start capture pokazuje systemową zgodę na nagrywanie ekranu — ale **tylko przy backendzie
+ReplayKit**. `UnityCamera` żadnej zgody nie potrzebuje, bo nie przechwytuje ekranu: aplikacja renderuje
+własną kamerę obserwatora. Passthrough nie trafia do strumienia w żadnym wariancie.
 
 W Edytorze host zarejestruje się w signalingu, ale **nie odpowie na offer**, bo nie ma natywnego WebRTC.
 To normalne, w logu zobaczysz `peer-create-failed`.

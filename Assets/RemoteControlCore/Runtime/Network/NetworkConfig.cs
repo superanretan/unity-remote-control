@@ -79,19 +79,29 @@ namespace SuperAnretan.RemoteControl
         // Legacy field (package 1.x): flat URL list without credentials. Migrated into _iceServerEntries on load.
         [SerializeField, HideInInspector] private string[] _iceServers = Array.Empty<string>();
 
+        // These three decide how much the Vision Pro pays for the preview. With the UnityCamera
+        // backend the headset renders an extra pass at exactly this size and rate, so the cost is
+        // roughly linear in width x height x fps — 720p @ 30 is four times the work of 540p @ 15 for
+        // a picture nobody looks at that closely. Snapped down to a multiple of 16 by the streamer.
         [Header("Video (Vision Pro → WebGL)")]
-        [Tooltip("Target width of the streamed frame. The native encoder scales the captured frame down to this size.")]
-        [SerializeField] private int _videoWidth = 1280;
+        [Tooltip("Width of the streamed frame. 960 is the recommended ceiling for a remote preview; " +
+                 "the Vision Pro renders an extra pass at this size for every streamed frame.")]
+        [Range(320, 1280)]
+        [SerializeField] private int _videoWidth = 960;
 
-        [Tooltip("Target height of the streamed frame.")]
-        [SerializeField] private int _videoHeight = 720;
+        [Tooltip("Height of the streamed frame. 540 with a 960 width keeps 16:9.")]
+        [Range(180, 720)]
+        [SerializeField] private int _videoHeight = 540;
 
-        [Tooltip("Target frame rate of the stream. 20–30 keeps Vision Pro load low.")]
-        [Range(5, 60)]
-        [SerializeField] private int _videoFps = 24;
+        [Tooltip("Frame rate of the stream. 15 is smooth enough to drive a remote UI and costs the " +
+                 "headset half of what 30 does. Above 30 is never worth it here.")]
+        [Range(5, 30)]
+        [SerializeField] private int _videoFps = 15;
 
-        [Tooltip("Maximum video bitrate in kbit/s. ~2500 is plenty for a 720p preview.")]
-        [SerializeField] private int _videoBitrateKbps = 2500;
+        [Tooltip("Maximum video bitrate in kbit/s. ~1200 is plenty at 960x540; raising it makes the " +
+                 "hardware encoder and the radio work harder for a preview.")]
+        [Range(200, 4000)]
+        [SerializeField] private int _videoBitrateKbps = 1200;
 
         /// <summary>Port number (default 7777).</summary>
         public ushort Port => _port;

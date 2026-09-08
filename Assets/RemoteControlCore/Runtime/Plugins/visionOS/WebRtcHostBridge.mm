@@ -68,7 +68,7 @@ void VPR_GetVideoConfig(int *width, int *height, int *fps)
 - (void)close;
 - (void)pushSampleBuffer:(CMSampleBufferRef)sampleBuffer;
 - (void)pushFrameBGRA:(const void *)data width:(int)width height:(int)height
-               stride:(int)stride timestampNs:(int64_t)timestampNs;
+               stride:(int)stride flip:(BOOL)flip timestampNs:(int64_t)timestampNs;
 @end
 
 static RCPeerHost *g_host = nil;
@@ -342,7 +342,7 @@ static CVPixelBufferRef RCTakePooledBGRA(int width, int height)
 }
 
 - (void)pushFrameBGRA:(const void *)data width:(int)width height:(int)height
-               stride:(int)stride timestampNs:(int64_t)timestampNs
+               stride:(int)stride flip:(BOOL)flip timestampNs:(int64_t)timestampNs
 {
     RC_RTC(VideoSource) *source = self.videoSource;
     RC_RTC(VideoCapturer) *capturer = self.videoCapturer;
@@ -367,7 +367,8 @@ static CVPixelBufferRef RCTakePooledBGRA(int width, int height)
     if (dst) {
         size_t rowBytes = (size_t)width * 4;
         for (int y = 0; y < height; y++) {
-            memcpy(dst + (size_t)y * dstStride, src + (size_t)y * (size_t)stride, rowBytes);
+            int srcRow = flip ? (height - 1 - y) : y;
+            memcpy(dst + (size_t)y * dstStride, src + (size_t)srcRow * (size_t)stride, rowBytes);
         }
     }
     CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
@@ -551,10 +552,12 @@ void VPR_PushSampleBuffer(CMSampleBufferRef sampleBuffer)
     if (host && sampleBuffer) [host pushSampleBuffer:sampleBuffer];
 }
 
-void VPR_PushFrameBGRA(const void *data, int width, int height, int stride, int64_t timestampNs)
+void VPR_PushFrameBGRA(const void *data, int width, int height, int stride,
+                       int flipVertically, int64_t timestampNs)
 {
     RCPeerHost *host = g_host;
-    if (host) [host pushFrameBGRA:data width:width height:height stride:stride timestampNs:timestampNs];
+    if (host) [host pushFrameBGRA:data width:width height:height stride:stride
+                             flip:(flipVertically != 0) timestampNs:timestampNs];
 }
 
 } // extern "C"

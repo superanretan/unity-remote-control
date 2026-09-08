@@ -5,10 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-09-08
+
+### Removed
+- **The ScreenCaptureKit backend.** It needed the Xcode 27 SDK, was never compiled into a shipped build
+  (`EnableScreenCaptureKit` was always `false`), and its source selection — screens, applications, windows —
+  has nothing to offer a fully immersive app, which is the case that actually broke. Keeping a beta-only,
+  never-executed path that documents itself as a capture solution is how the ReplayKit assumption misled us
+  in the first place. Gone: the native `VPRScreenCaptureKitSource`, the `VPR_ENABLE_SCREENCAPTUREKIT` /
+  `VPR_HAS_SCK` plumbing, the `ScreenCaptureKit.framework` link in the Xcode post-processor, and
+  `CaptureBackend.ScreenCaptureKit`. The enum value `2` is left as a gap, so a scene that still has it
+  serialized falls through to ReplayKit exactly as it did before.
+
+### Changed
+- **`Auto` now resolves to `UnityCamera` when a `VisionCameraStreamer` is in the scene.** Leaving the backend
+  on `Auto` in an immersive project produced a black stream and said nothing about it. The host logs which
+  way it resolved. An explicitly chosen backend is never overridden.
+- **The spectator stream is built to stay cheap.** The Vision Pro must not slow down for a preview, so: the
+  camera is disabled and rendered on demand — only the frames that are actually streamed, at 15 fps a quarter
+  of a 60 fps camera's work; it renders at the stream resolution so the encoder never rescales; HDR, MSAA,
+  post-processing, the depth texture and shadows are all off (URP's knobs via reflection, so the package keeps
+  no render-pipeline dependency); rendering goes through `RenderPipeline.SubmitRenderRequest` under an SRP
+  because `Camera.Render()` is a legacy-pipeline call; one readback is in flight at a time and a late frame is
+  dropped rather than queued; and the vertical flip moved into the row copy the native side makes anyway,
+  which removed a second `RenderTexture` and a full-screen blit per frame.
+- **`NetworkConfig` video defaults lowered to 960x540 @ 15 fps, 1200 kbit/s** and range-capped at
+  1280x720 @ 30. Size, rate and bitrate all reach the encoder (`adaptOutputFormat`, `maxBitrateBps`,
+  `maxFramerate`), and the streamer logs a note if the configured cost is heavy for the headset.
+- `VisionCameraStreamer` copies an assigned `Source Camera`'s settings onto its own camera instead of taking
+  that camera over, so nothing in the host scene changes behaviour when streaming starts.
+
 ## [2.1.0] - 2026-09-08
 
 ### Added
-- **`UnityCamera` capture backend + `VisionCameraStreamer`.** ReplayKit and ScreenCaptureKit capture the
+- **`UnityCamera` capture backend + `VisionCameraStreamer`.** The system capture APIs capture the
   app's *window*. A fully immersive Unity app renders through Compositor Services and never draws into that
   window, so the browser received a steady 21 fps of uniformly dark frames — measured end to end: the GL
   upload was proven correct (a pixel read back out of the Unity texture before the first upload was the

@@ -94,7 +94,7 @@ Zasady:
   host wysyła jeden `snapshot` ze wszystkimi tematami i aktualny `capture`, potem zmiany przyrostowo.
   Kontroler zawsze startuje z pełnym stanem — zero pracy w aplikacji.
 - Stan capture jest raportowany **niezależnie** od DataChannelu: `starting` przy `StartCapture`,
-  `streaming` gdy ReplayKit/ScreenCaptureKit faktycznie dostarcza klatki, `stopped`, `error` z kodem.
+  `streaming` gdy klatki faktycznie lecą (ReplayKit albo `VisionCameraStreamer`), `stopped`, `error` z kodem.
   „DataChannel open" ≠ „obraz idzie".
 - Komenda z niepustym `requestId` dostaje `ack` (`_ackCommands`, domyślnie włączone).
 
@@ -279,7 +279,7 @@ Zmienione
 
 ## 6. Release
 
-Wersja paczki: `2.0.2` (`Assets/RemoteControlCore/package.json`). Proponowany tag: `vpwebgl2.0`.
+Wersja paczki: `2.2.0` (`Assets/RemoteControlCore/package.json`). Proponowany tag: `vpwebgl2.0`.
 Konsument wskazuje go w `Packages/manifest.json`:
 
 ```json

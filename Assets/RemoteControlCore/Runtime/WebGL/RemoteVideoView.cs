@@ -30,9 +30,16 @@ namespace SuperAnretan.RemoteControl
         [Tooltip("Fallback/debug: also show the raw HTMLVideoElement on top of the WebGL canvas.")]
         [SerializeField] private bool _useHtmlOverlay;
 
+        [Tooltip("Diagnostics: fill a freshly created texture with magenta and log why frames are not " +
+                 "arriving. Magenta on screen proves the RawImage really shows this texture, so a missing " +
+                 "picture is an upload problem, not a UI one.")]
+        [SerializeField] private bool _diagnostics = true;
+
         private Texture2D _texture;
         private IntPtr _nativePtr;
         private bool _hasVideo;
+        private int _uploads;
+        private float _nextDiagAt;
 
         public bool HasVideo => _hasVideo;
 
@@ -42,7 +49,9 @@ namespace SuperAnretan.RemoteControl
             WebGLRemoteBridge.OnEvent += OnBridgeEvent;
             if (_onDisconnectedChannel != null) _onDisconnectedChannel.OnRaised += ClearVideo;
 
-            if (WebGLRemoteBridge.IsSupported) WebGLRemoteBridge.SetOverlay(_useHtmlOverlay);
+            // Under diagnostics the raw <video> is drawn over the canvas too: a picture there with a
+            // magenta quad below it proves WebRTC delivers frames and only the GL upload is broken.
+            if (WebGLRemoteBridge.IsSupported) WebGLRemoteBridge.SetOverlay(_useHtmlOverlay || _diagnostics);
             if (_target != null) _target.enabled = false;
         }
 
@@ -68,7 +77,20 @@ namespace SuperAnretan.RemoteControl
 
             if (_nativePtr == IntPtr.Zero) return;
 
-            WebGLRemoteBridge.UpdateTexture(_nativePtr, _texture.width, _texture.height);
+            if (WebGLRemoteBridge.UpdateTexture(_nativePtr, _texture.width, _texture.height))
+            {
+                if (_uploads++ == 0)
+                    Log($"[Video] First frame uploaded ({_texture.width}x{_texture.height}).");
+                return;
+            }
+
+            // Nothing has ever landed in this texture: say so, and say what the two sides think.
+            if (_diagnostics && _uploads == 0 && Time.unscaledTime >= _nextDiagAt)
+            {
+                _nextDiagAt = Time.unscaledTime + 2f;
+                Log($"[Video] No frame uploaded yet — texture {_texture.width}x{_texture.height}, " +
+                    $"glId={_nativePtr.ToInt64()}, bridge reports {w}x{h}.");
+            }
         }
 
         private void OnBridgeEvent(string type, string payload)
@@ -105,8 +127,18 @@ namespace SuperAnretan.RemoteControl
                 filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp
             };
+            // A fresh Texture2D holds uninitialized CPU pixels, which is why a texture nothing ever
+            // uploads into shows up as flat grey. Clear it so an empty texture is unmistakable, and
+            // under _diagnostics make it magenta: seeing magenta proves the RawImage is bound to this
+            // texture, so a missing picture is an upload problem rather than a UI one.
+            var fill = _diagnostics ? new Color32(255, 0, 255, 255) : new Color32(0, 0, 0, 255);
+            var pixels = new Color32[w * h];
+            for (int i = 0; i < pixels.Length; i++) pixels[i] = fill;
+            _texture.SetPixels32(pixels);
             _texture.Apply(false, false);           // allocate the GL texture before grabbing its id
             _nativePtr = _texture.GetNativeTexturePtr();
+            _uploads = 0;
+            _nextDiagAt = 0f;
 
             if (_target != null)
             {
@@ -121,6 +153,7 @@ namespace SuperAnretan.RemoteControl
         private void ClearVideo()
         {
             _hasVideo = false;
+            _uploads = 0;
             if (_target != null)
             {
                 _target.texture = null;

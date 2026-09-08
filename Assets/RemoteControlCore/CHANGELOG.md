@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-09-08
+
+### Added
+- **Video pipeline diagnostics.** With `texSubImage2D` accepted by the driver the WebGL controller still
+  showed a flat grey quad, which is what an untouched `Texture2D` looks like — so the question moved from
+  "why is the upload rejected" to "where does the frame actually go". `RemoteVideoView._diagnostics`
+  (on by default) fills every freshly created texture with magenta, shows the raw `<video>` overlay, and
+  reports once every two seconds which gate in `updateTexture` is dropping frames, including how many
+  frames the browser has actually presented through `requestVideoFrameCallback`. The `.jslib` reads one
+  pixel back out of `GL.textures[texId]` twice: before the first upload, where it must be the magenta
+  Unity wrote (anything else proves `GetNativeTexturePtr` did not hand us that texture), and after the
+  first upload, where it must be the frame. A build stamp is logged on init so a stale deployment is
+  obvious. Set `_diagnostics` to false to silence all of it.
+
 ## [2.0.2] - 2026-09-08
 
 ### Fixed

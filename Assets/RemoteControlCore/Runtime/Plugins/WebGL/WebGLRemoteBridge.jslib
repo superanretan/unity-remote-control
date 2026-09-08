@@ -45,6 +45,10 @@ var WebGLRemoteBridgeLib = {
     videoW: 0,
     videoH: 0,
     uploadKey: "",      // texId+size the upload path below was probed for
+    upOk: 0,            // successful frame uploads since the page loaded
+    frameCount: 0,      // frames the browser actually presented (requestVideoFrameCallback)
+    diagAt: 0,
+    diagPost: 0,
     uploadMode: null,   // null = not probed yet, then "texsubimage" | "teximage"
     uploadFails: 0,
     overlay: false,
@@ -484,7 +488,7 @@ var WebGLRemoteBridgeLib = {
       });
       // Mark a new frame only when the browser actually decoded one.
       if ("requestVideoFrameCallback" in v) {
-        var onFrame = function () { S.frameDirty = true; if (S.video === v) v.requestVideoFrameCallback(onFrame); };
+        var onFrame = function () { S.frameDirty = true; S.frameCount++; if (S.video === v) v.requestVideoFrameCallback(onFrame); };
         v.requestVideoFrameCallback(onFrame);
       } else {
         v.addEventListener("timeupdate", function () { S.frameDirty = true; });
@@ -505,6 +509,7 @@ var WebGLRemoteBridgeLib = {
       var S = WebGLRemote;
       var had = S.hasVideo;
       S.hasVideo = false; S.frameDirty = false; S.videoW = 0; S.videoH = 0;
+      S.upOk = 0; S.frameCount = 0; S.diagAt = 0;   // re-arm diagnostics for the next session
       if (S.stream) { try { S.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} S.stream = null; }
       if (S.video) { try { S.video.pause(); S.video.srcObject = null; } catch (e) {} }
       if (had) S.emit("video-stopped", "");
@@ -524,6 +529,46 @@ var WebGLRemoteBridgeLib = {
       }
     },
 
+    // Diagnostics. Silent once a frame has landed; until then it says, at most every two
+    // seconds, which gate is blocking and what both sides believe about the video.
+    diagNote: function (reason) {
+      var S = WebGLRemote, v = S.video, t = Date.now();
+      if (S.upOk || t - S.diagAt < 2000) return;
+      S.diagAt = t;
+      S.log("[Video] jslib skip: " + reason +
+            " — video " + (v ? v.videoWidth + "x" + v.videoHeight + " ready=" + v.readyState +
+                               " paused=" + v.paused + " t=" + (v.currentTime || 0).toFixed(2)
+                             : "(none)") +
+            ", bridge " + S.videoW + "x" + S.videoH +
+            ", presented=" + S.frameCount + ", dirty=" + S.frameDirty);
+    },
+
+    // Reads one pixel back out of the texture GL.textures[texId] resolved to. Run BEFORE the first
+    // upload it is an identity test: the pixel must be the magenta Unity filled the Texture2D with,
+    // and anything else proves GetNativeTexturePtr did not hand us this texture. Run after the
+    // upload it proves the frame actually landed there.
+    diagReadback: function (tex, w, h, label) {
+      var gl = GLctx, S = WebGLRemote;
+      try {
+        var prevFb = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+        var fb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE) {
+          var px = new Uint8Array(4);
+          gl.readPixels(w >> 1, h >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          S.log("[Video] Centre pixel " + label + ": rgba(" + px[0] + "," + px[1] + "," + px[2] +
+                "," + px[3] + ").");
+        } else {
+          S.log("[Video] Pixel readback " + label + " unavailable (framebuffer incomplete).");
+        }
+        gl.bindFramebuffer(gl.FRAMEBUFFER, prevFb);
+        gl.deleteFramebuffer(fb);
+      } catch (e) {
+        S.log("[Video] Pixel readback " + label + " threw: " + e);
+      }
+    },
+
     // Uploads the current video frame into the GL texture Unity allocated for the
     // Texture2D. Unity's WebGL2 backend allocates Texture2D storage with texStorage2D,
     // which makes the texture IMMUTABLE: texImage2D on it fails with GL_INVALID_OPERATION
@@ -532,10 +577,11 @@ var WebGLRemoteBridgeLib = {
     // hence the (w,h) the caller passes in.
     updateTexture: function (texId, w, h) {
       var S = WebGLRemote, v = S.video;
-      if (!v || !S.hasVideo || !S.frameDirty || v.readyState < 2) return 0;
+      if (!v || !S.hasVideo || v.readyState < 2) { S.diagNote("no video / not ready"); return 0; }
+      if (!S.frameDirty) { S.diagNote("no new decoded frame"); return 0; }
 
       var vw = v.videoWidth | 0, vh = v.videoHeight | 0;
-      if (vw <= 0 || vh <= 0) return 0;
+      if (vw <= 0 || vh <= 0) { S.diagNote("video has no dimensions"); return 0; }
 
       // The video resized without the "resize" event having reached Unity yet (or the
       // texture is still the old size). Re-publish the size and skip this frame; the view
@@ -543,15 +589,16 @@ var WebGLRemoteBridgeLib = {
       if (vw !== S.videoW || vh !== S.videoH) {
         S.videoW = vw; S.videoH = vh;
         S.emit("video-size", vw + "," + vh);
+        S.diagNote("video resized to " + vw + "x" + vh);
         return 0;
       }
-      if ((w | 0) !== vw || (h | 0) !== vh) return 0;
+      if ((w | 0) !== vw || (h | 0) !== vh) { S.diagNote("texture " + w + "x" + h + " does not match video"); return 0; }
 
       var gl = GLctx;
-      if (!gl || (gl.isContextLost && gl.isContextLost())) return 0;
+      if (!gl || (gl.isContextLost && gl.isContextLost())) { S.diagNote("GL context lost"); return 0; }
 
       var tex = GL.textures[texId];
-      if (!tex) return 0;
+      if (!tex) { S.diagNote("GL.textures[" + texId + "] is empty"); return 0; }
 
       // The upload path is decided per texture, not once per session: a texture Unity
       // allocated differently (or a restored context handing back the same slot) must be
@@ -561,6 +608,10 @@ var WebGLRemoteBridgeLib = {
         S.uploadKey = key;
         S.uploadMode = null;
         S.uploadFails = 0;
+        S.diagPost = 0;
+        // Identity check, before this texture is written to for the first time: Unity filled the
+        // Texture2D with magenta, so rgba(255,0,255,255) here means texId really is that texture.
+        S.diagReadback(tex, w, h, "before first upload into GL.textures[" + texId + "]");
       }
 
       var prevTex = gl.getParameter(gl.TEXTURE_BINDING_2D);
@@ -609,7 +660,11 @@ var WebGLRemoteBridgeLib = {
         gl.bindTexture(gl.TEXTURE_2D, prevTex);
       }
 
-      if (ok) S.frameDirty = false;
+      if (ok) {
+        S.frameDirty = false;
+        S.upOk++;
+        if (!S.diagPost) { S.diagPost = 1; S.diagReadback(tex, w, h, "after first upload"); }
+      }
       return ok;
     }
   },
@@ -619,6 +674,8 @@ var WebGLRemoteBridgeLib = {
   WebGLRemote_Init__deps: ['$WebGLRemote'],
   WebGLRemote_Init: function (cb) {
     WebGLRemote.cb = cb;
+    WebGLRemote.log("[Video] bridge build: diag-1 (texSubImage2D + pixel readback). " +
+                    "If you do not see this line, the deployed build is stale.");
     if (!WebGLRemote._unloadHooked) {
       WebGLRemote._unloadHooked = true;
       window.addEventListener("beforeunload", function () { WebGLRemote.onPageLeaving(); });

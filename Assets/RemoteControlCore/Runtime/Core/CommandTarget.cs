@@ -2,10 +2,6 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Attach to any scene GameObject to make it addressable by remote commands.
-    /// Registers itself into the <see cref="CommandTargetRegistry"/> on enable.
-    /// </summary>
     public class CommandTarget : MonoBehaviour
     {
         [Header("Identity")]
@@ -16,9 +12,6 @@ namespace SuperAnretan.RemoteControl
         [Tooltip("The target registry SO this object registers into at runtime.")]
         [SerializeField] private CommandTargetRegistry _registry;
 
-        /// <summary>
-        /// The unique identifier for this target.
-        /// </summary>
         public string TargetId => _targetId;
 
         private void OnEnable()

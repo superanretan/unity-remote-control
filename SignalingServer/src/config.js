@@ -1,12 +1,9 @@
 // Environment → configuration. Pure function so tests can pass their own env object.
 //
-//   REDIS_URL             TCP connection string: redis://… or rediss://…
-//                         Also accepted, in this order: KV_URL, REDIS_TLS_URL, UPSTASH_REDIS_URL —
-//                         the names the Vercel Marketplace Redis integrations inject. A REST endpoint
-//                         (https://…) is REJECTED: the REST API cannot SUBSCRIBE, which the
-//                         cross-instance doorbell needs. Copy the TCP/RESP string from the provider console.
-//                         Unset locally → in-memory store (single instance). Unset on Vercel → fatal
-//                         misconfiguration (see `misconfigured`), because two instances would not see each other.
+//   REDIS_URL             TCP connection string, redis:// or rediss://. KV_URL, REDIS_TLS_URL and
+//                         UPSTASH_REDIS_URL are accepted too, in that order. A REST endpoint is
+//                         rejected: the REST API cannot SUBSCRIBE. Unset locally = in-memory store;
+//                         unset on Vercel = fatal, since two instances would not see each other.
 //   KEY_PREFIX            Redis key namespace (default "rc")
 //   DEVICE_TIMEOUT        seconds without heartbeat before a host leaves the device list (default 15)
 //   PAIR_LEASE_SECONDS    controller ↔ host pairing lease TTL (default 30); refreshed every TICK_MS
@@ -24,7 +21,7 @@
 //
 // Set by the platform, read here for diagnostics: VERCEL, VERCEL_ENV, VERCEL_REGION.
 
-/** Env var names that may carry the Redis TCP connection string, in priority order. */
+// Env var names that may carry the Redis TCP connection string, in priority order.
 export const REDIS_URL_VARS = ["REDIS_URL", "KV_URL", "REDIS_TLS_URL", "UPSTASH_REDIS_URL"];
 
 export function loadConfig(env = process.env) {
@@ -52,7 +49,7 @@ export function loadConfig(env = process.env) {
     onVercel,
     vercelEnv: (env.VERCEL_ENV || "").trim(),
     region: (env.VERCEL_REGION || "").trim(),
-    /** null, or { slug, detail } — the server then refuses to pretend it works (see src/signaling.js). */
+    // null, or { slug, detail } — the server then refuses to pretend it works (see signaling.js).
     misconfigured,
     deviceTimeoutMs: clamp(num(env.DEVICE_TIMEOUT, 15), 3, 600) * 1000,
     pairLeaseSec: clamp(num(env.PAIR_LEASE_SECONDS, 30), 5, 3600),
@@ -75,11 +72,8 @@ export function loadConfig(env = process.env) {
   };
 }
 
-/**
- * First usable Redis URL among {@link REDIS_URL_VARS}.
- * → `{ url, source, error: null }` when a redis://|rediss:// URL was found (url "" when none is set),
- * → `{ url: "", source, error: { slug, detail } }` when a variable is set but unusable.
- */
+// First usable Redis URL among REDIS_URL_VARS. Returns { url, source, error: null } on success
+// (url "" when nothing is set), or { url: "", source, error: { slug, detail } } when one is unusable.
 export function resolveRedisUrl(env = process.env) {
   for (const name of REDIS_URL_VARS) {
     const raw = String(env[name] ?? "").trim();
@@ -111,7 +105,8 @@ export function resolveRedisUrl(env = process.env) {
   return { url: "", source: null, error: null };
 }
 
-/** `{ open: boolean, byToken: Map<token, roomName> }` — open means "no token configured, everybody lands in 'default'". */
+// Returns { open, byToken: Map<token, roomName> }. open = no token configured, everybody lands in
+// room "default".
 export function parseRooms(single, multi) {
   const byToken = new Map();
   if (multi) {

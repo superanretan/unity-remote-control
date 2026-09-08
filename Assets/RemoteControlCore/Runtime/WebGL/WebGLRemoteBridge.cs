@@ -6,16 +6,11 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Thin C# façade over <c>WebGLRemoteBridge.jslib</c>.
-    /// Browser callbacks are queued and dispatched on the main thread by
-    /// <see cref="PumpEvents"/>, which every consumer calls from <c>Update</c>
-    /// (the first caller in a frame drains the queue for everyone).
-    /// Outside a WebGL player every call is a harmless no-op so scenes still run in the Editor.
-    /// </summary>
+    // Thin C# façade over WebGLRemoteBridge.jslib. Browser callbacks are queued and dispatched on
+    // the main thread by PumpEvents. Outside a WebGL player every call is a no-op.
     public static class WebGLRemoteBridge
     {
-        /// <summary>(eventType, payload) — see the .jslib header for the event list.</summary>
+        // (eventType, payload) — see the .jslib header for the event list.
         public static event Action<string, string> OnEvent;
 
         private delegate void EventCallback(IntPtr type, IntPtr payload);
@@ -26,7 +21,6 @@ namespace SuperAnretan.RemoteControl
         private static EventCallback _callback;
 
 #if UNITY_WEBGL && !UNITY_EDITOR
-        /// <summary>True only inside a WebGL player build.</summary>
         public static bool IsSupported => true;
 
         [DllImport("__Internal")] private static extern void WebGLRemote_Init(EventCallback cb);
@@ -44,7 +38,6 @@ namespace SuperAnretan.RemoteControl
         [DllImport("__Internal")] private static extern int  WebGLRemote_UpdateTexture(int textureId, int width, int height);
         [DllImport("__Internal")] private static extern void WebGLRemote_SetOverlay(int enabled);
 #else
-        /// <summary>True only inside a WebGL player build.</summary>
         public static bool IsSupported => false;
 
         private static void WebGLRemote_Init(EventCallback cb) { }
@@ -63,7 +56,6 @@ namespace SuperAnretan.RemoteControl
         private static void WebGLRemote_SetOverlay(int enabled) { }
 #endif
 
-        /// <summary>Registers the JS→C# callback once. Safe to call repeatedly.</summary>
         public static void Initialize()
         {
             if (_initialized) return;
@@ -80,7 +72,6 @@ namespace SuperAnretan.RemoteControl
             _queue.Enqueue((t, p));
         }
 
-        /// <summary>Dispatch queued browser events on the main thread.</summary>
         public static void PumpEvents()
         {
             while (_queue.Count > 0)
@@ -108,16 +99,11 @@ namespace SuperAnretan.RemoteControl
         public static int VideoWidth => WebGLRemote_GetVideoWidth();
         public static int VideoHeight => WebGLRemote_GetVideoHeight();
 
-        /// <summary>
-        /// Copies the latest decoded video frame into the GL texture behind <paramref name="nativeTexturePtr"/>.
-        /// <paramref name="width"/>/<paramref name="height"/> are the dimensions the texture was allocated with:
-        /// the upload is skipped when the incoming video no longer matches them, because Unity's WebGL2
-        /// textures are immutable and only accept a same-size texSubImage2D.
-        /// </summary>
+        // width/height must be the size the texture was allocated with: Unity's WebGL2 textures are
+        // immutable and only accept a same-size texSubImage2D, so a mismatched frame is skipped.
         public static bool UpdateTexture(IntPtr nativeTexturePtr, int width, int height) =>
             WebGLRemote_UpdateTexture(nativeTexturePtr.ToInt32(), width, height) != 0;
 
-        /// <summary>Debug fallback: show the raw HTMLVideoElement on top of the canvas.</summary>
         public static void SetOverlay(bool enabled) => WebGLRemote_SetOverlay(enabled ? 1 : 0);
     }
 }

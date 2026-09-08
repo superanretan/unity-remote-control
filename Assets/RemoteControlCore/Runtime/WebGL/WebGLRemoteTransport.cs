@@ -4,17 +4,9 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// WebGL counterpart of <see cref="TransportClient"/>.
-    /// Same event-channel contract (ConnectRequest → OnConnected/OnDisconnected, CommandSend),
-    /// but the connect payload is a signaling <c>deviceId</c> and commands travel over an
-    /// RTCDataChannel opened by <c>WebGLRemoteBridge.jslib</c>.
-    /// UI code keeps calling <c>commandSendChannel.Raise(command)</c> and never sees WebRTC.
-    ///
-    /// Return channel: every text message the host sends over the DataChannel is raised verbatim on
-    /// <c>HostMessageReceivedChannel</c> (a <see cref="StringEventChannel"/>). UI code parses it with
-    /// <see cref="HostMessage.FromJson"/> and reacts (highlight the active compartment, show capture state, match acks).
-    /// </summary>
+    // WebGL counterpart of TransportClient. Same event-channel contract, but the connect payload is
+    // a signaling deviceId and commands travel over an RTCDataChannel opened by the .jslib.
+    // Return channel: every text message from the host is raised verbatim on HostMessageReceivedChannel.
     public class WebGLRemoteTransport : MonoBehaviour
     {
         [Header("Config")]
@@ -60,7 +52,7 @@ namespace SuperAnretan.RemoteControl
 
         public bool IsConnected => _isConnected;
 
-        /// <summary>Typed convenience over <c>HostMessageReceivedChannel</c> for code that prefers C# events.</summary>
+        // Typed convenience over HostMessageReceivedChannel.
         public event Action<HostMessage> OnHostMessage;
 
         private void OnEnable()
@@ -101,7 +93,6 @@ namespace SuperAnretan.RemoteControl
 
         // ───────── Public API ─────────
 
-        /// <summary>User/UI initiated connect — resets the reconnect budget.</summary>
         private void OnConnectRequest(string deviceId)
         {
             _reconnectAttempts = 0;
@@ -159,7 +150,6 @@ namespace SuperAnretan.RemoteControl
                 Log("[DataChannel] Send failed — channel not open.");
         }
 
-        /// <summary>Fresh correlation id for <see cref="RemoteCommand.requestId"/>.</summary>
         public string NextRequestId() => $"r{++_requestCounter}-{Time.frameCount}";
 
         // ───────── Bridge events ─────────
@@ -267,7 +257,6 @@ namespace SuperAnretan.RemoteControl
             Connect(_lastDeviceId);
         }
 
-        /// <summary>Cancels a pending retry without touching the retry budget.</summary>
         private void CancelReconnectTimer()
         {
             if (_reconnectRoutine != null)

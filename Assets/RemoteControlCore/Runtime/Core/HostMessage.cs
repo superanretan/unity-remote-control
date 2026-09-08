@@ -4,24 +4,9 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Versioned envelope for everything the host sends back to the controller over the DataChannel —
-    /// the return channel that <see cref="RemoteCommand"/> (controller → host) never had.
-    ///
-    /// <code>
-    /// {"messageType":"state","schemaVersion":1,"topic":"navigation","value":"compartment-a","payload":"","requestId":""}
-    /// </code>
-    ///
-    /// <list type="table">
-    ///   <item><term>state</term><description>one topic changed: <c>topic</c> + <c>value</c> (+ optional <c>payload</c> JSON)</description></item>
-    ///   <item><term>snapshot</term><description>full state right after the DataChannel opens: <c>payload</c> = <see cref="HostStateSnapshot"/> JSON</description></item>
-    ///   <item><term>capture</term><description>screen-capture pipeline state, independent of the DataChannel: <c>value</c> = starting | streaming | stopped | error, <c>payload</c> = error code</description></item>
-    ///   <item><term>ack</term><description>reply to a <see cref="RemoteCommand"/> that carried a <c>requestId</c>: <c>topic</c> = commandType, <c>value</c> = dispatched | rejected, <c>payload</c> = reason</description></item>
-    /// </list>
-    ///
-    /// Same conventions as <see cref="RemoteCommand"/>: flat, JsonUtility-friendly, <see cref="ToJson"/> / <see cref="FromJson"/>.
-    /// Unknown <c>messageType</c>s must be ignored by receivers so the schema can grow without breaking old controllers.
-    /// </summary>
+    // Host -> controller envelope over the DataChannel. Flat and JsonUtility-friendly:
+    // {"messageType":"state","schemaVersion":1,"topic":"navigation","value":"a","payload":"","requestId":""}
+    // Receivers must ignore unknown messageTypes so the schema can grow.
     [Serializable]
     public class HostMessage
     {
@@ -42,22 +27,11 @@ namespace SuperAnretan.RemoteControl
         public const string AckDispatched = "dispatched";
         public const string AckRejected = "rejected";
 
-        /// <summary>state | snapshot | capture | ack (see class remarks).</summary>
         public string messageType;
-
-        /// <summary>Schema version of this envelope. Receivers should accept any version ≤ their own.</summary>
         public int schemaVersion = CurrentSchemaVersion;
-
-        /// <summary>What changed — e.g. "navigation", "capture", or the commandType for an ack.</summary>
         public string topic;
-
-        /// <summary>Primary value — interpretation depends on the topic.</summary>
         public string value;
-
-        /// <summary>Optional extra JSON blob (snapshot entries, error details, ...).</summary>
         public string payload = string.Empty;
-
-        /// <summary>Correlates an <c>ack</c> with the <see cref="RemoteCommand.requestId"/> it answers. Empty otherwise.</summary>
         public string requestId = string.Empty;
 
         public HostMessage() { }
@@ -92,7 +66,6 @@ namespace SuperAnretan.RemoteControl
         public bool IsCapture => messageType == TypeCapture;
         public bool IsAck => messageType == TypeAck;
 
-        /// <summary>Snapshot entries when <see cref="IsSnapshot"/>; empty list otherwise.</summary>
         public List<HostStateEntry> SnapshotEntries()
         {
             if (!IsSnapshot || string.IsNullOrEmpty(payload)) return new List<HostStateEntry>();
@@ -102,7 +75,6 @@ namespace SuperAnretan.RemoteControl
 
         public string ToJson() => JsonUtility.ToJson(this);
 
-        /// <summary>Deserialize from JSON. Returns null on failure or when <c>messageType</c> is missing.</summary>
         public static HostMessage FromJson(string json)
         {
             if (string.IsNullOrEmpty(json)) return null;
@@ -122,7 +94,6 @@ namespace SuperAnretan.RemoteControl
             $"[{messageType}] topic={topic} value={value}{(string.IsNullOrEmpty(requestId) ? "" : $" req={requestId}")}";
     }
 
-    /// <summary>One (topic, value, payload) triple inside a snapshot.</summary>
     [Serializable]
     public class HostStateEntry
     {
@@ -140,7 +111,6 @@ namespace SuperAnretan.RemoteControl
         }
     }
 
-    /// <summary>JsonUtility wrapper — the payload of a <c>snapshot</c> message.</summary>
     [Serializable]
     public class HostStateSnapshot
     {

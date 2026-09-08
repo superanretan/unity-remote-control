@@ -4,11 +4,6 @@ using UnityEngine.UI;
 
 namespace SuperAnretan.RemoteControl.Samples
 {
-    /// <summary>
-    /// Controller scene UI controller.
-    /// Wires buttons and input field to event channels for connect/send/disconnect.
-    /// No direct references to TransportClient — everything goes through SO channels.
-    /// </summary>
     public class DemoControllerUI : MonoBehaviour
     {
         [Header("Event Channels")]
@@ -46,14 +41,12 @@ namespace SuperAnretan.RemoteControl.Samples
 
         private void OnEnable()
         {
-            // UI button listeners
             _connectButton?.onClick.AddListener(OnConnectClicked);
             _disconnectButton?.onClick.AddListener(OnDisconnectClicked);
             _redButton?.onClick.AddListener(() => SendColor("#FF0000"));
             _greenButton?.onClick.AddListener(() => SendColor("#00FF00"));
             _blueButton?.onClick.AddListener(() => SendColor("#0000FF"));
 
-            // Connection state listeners
             if (_onConnectedChannel != null)
                 _onConnectedChannel.OnRaised += OnConnected;
             if (_onDisconnectedChannel != null)

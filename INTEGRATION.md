@@ -1,233 +1,239 @@
-# Integracja i wdrożenie — od zera do działającego kontrolera
+# Integration and deployment — from nothing to a working controller
 
-Ten dokument opisuje pełną drogę: postawienie serwera signalingowego na Vercelu, instalację paczki
-`com.superanretan.remotecontrol` w **docelowym projekcie Unity**, napisanie **własnego UI kontrolera**,
-setup hosta na Vision Pro i wrzucenie builda WebGL.
+This document covers the whole path: standing up the signaling server on Vercel, installing the
+`com.superanretan.remotecontrol` package in **your target Unity project**, writing **your own controller
+UI**, setting up the host on the Vision Pro, and uploading the WebGL build.
 
-Paczka jest biblioteką, nie aplikacją. Nie narzuca UI: wszystko przechodzi przez kanały ScriptableObject,
-więc własny interfejs kontrolera podłączasz bez dotykania kodu paczki i bez dziedziczenia po niczym.
+The package is a library, not an application. It does not impose a UI: everything goes through
+ScriptableObject channels, so you wire your own controller interface up without touching the package's code
+and without inheriting from anything.
 
-Dokumenty towarzyszące: [WEBGL_VISIONOS_REMOTE.md](WEBGL_VISIONOS_REMOTE.md) (architektura),
-[REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.md) (co przynosi wersja 2.0 i co jest breaking),
-[SETUP_HOST_CLIENT.md](SETUP_HOST_CLIENT.md) (przyciski → komendy),
-[SignalingServer/README.md](SignalingServer/README.md) (serwer w szczegółach).
+Companion documents: [WEBGL_VISIONOS_REMOTE.md](WEBGL_VISIONOS_REMOTE.md) (architecture),
+[REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.md) (what 2.0 brings and what is breaking),
+[SETUP_HOST_CLIENT.md](SETUP_HOST_CLIENT.md) (buttons → commands),
+[SignalingServer/README.md](SignalingServer/README.md) (the server in detail).
 
-Kolejność jest wymuszona: najpierw A, bo adres serwera jest potrzebny w B, a build WebGL wypala go w sobie.
-Sekcja A prowadzi od pustego konta Vercela do dwóch działających projektów.
+The order is forced: A comes first, because the server address is needed in B and the WebGL build bakes it
+in. Section A takes you from an empty Vercel account to two working projects.
 
 ---
 
-## A. Vercel od zera
+## A. Vercel from scratch
 
-Powstaną **dwa projekty** na jednym koncie:
+You end up with **two projects** on one account:
 
-| Projekt | Co to jest | Skąd wdrażany |
+| Project | What it is | Deployed from |
 |---|---|---|
-| signaling | funkcja Node z WebSocketem, pośrednik do zestawienia połączenia | folder `SignalingServer/` |
-| kontroler | statyczna strona, czyli build WebGL | folder z buildem, np. `Builds/WebGL/` |
+| signaling | a Node function with a WebSocket, the broker that sets the connection up | the `SignalingServer/` folder |
+| controller | a static page, i.e. the WebGL build | the build folder, e.g. `Builds/WebGL/` |
 
-Dlaczego dwa, a nie jeden: nowy build kontrolera nie może redeployować signalingu, bo stare połączenia
-przechodzą wtedy na nowy deployment. Przy dwóch projektach signaling stawiasz raz i nigdy go nie ruszasz.
+Why two and not one: a new controller build must not redeploy the signaling server, because existing
+connections would then move to a new deployment. With two projects you stand the signaling server up once and
+never touch it again.
 
-**Kolejność jest wymuszona przez zależności.** Build WebGL wypala w sobie adres signalingu, a signaling
-potrzebuje domeny kontrolera do allowlisty Origin. Dlatego: najpierw signaling, potem adres do Unity,
-potem build i upload kontrolera, na końcu domena kontrolera z powrotem do signalingu.
+**The order is forced by the dependencies.** The WebGL build bakes in the signaling address, and the
+signaling server needs the controller's domain for the Origin allowlist. So: signaling first, then the
+address into Unity, then build and upload the controller, and finally the controller's domain back into
+signaling.
 
-Po co w ogóle signaling: przeglądarka i Vision Pro muszą wymienić SDP oraz kandydatów ICE, zanim zestawią
-połączenie peer-to-peer. Statyczny hosting tego nie zrobi, bo nie utrzyma WebSocketa. Sam build WebGL nigdy
-nie wystarczy. Po zestawieniu połączenia serwer nie widzi już ani komend, ani obrazu.
+Why signaling at all: the browser and the Vision Pro have to exchange SDP and ICE candidates before they can
+establish a peer-to-peer connection. Static hosting cannot do that, because it cannot hold a WebSocket open.
+A WebGL build on its own is never enough. Once the connection is up, the server sees neither the commands nor
+the video.
 
-### Ściągawka bez teorii
+### Cheat sheet, no theory
 
-Jeśli nie chcesz czytać wyjaśnień, rób dokładnie to. Uzasadnienia są w podsekcjach niżej.
+If you do not want to read the explanations, do exactly this. The reasoning is in the subsections below.
 
-Trzy wartości, które zapisujesz sobie w trakcie i wpisujesz w kilku miejscach:
+Three values you write down along the way and enter in several places:
 
-| Wartość | Skąd | Gdzie potem |
+| Value | From | Used later in |
 |---|---|---|
-| adres signalingu | krok 7 | Unity, krok 24 |
-| `ROOM_TOKEN` | wymyślasz w kroku 18 | Vercel krok 18, health check krok 20, Unity krok 25 |
-| adres kontrolera | krok 34 | Vercel krok 36 |
+| signaling address | step 7 | Unity, step 24 |
+| `ROOM_TOKEN` | you invent it in step 18 | Vercel step 18, health check step 20, Unity step 25 |
+| controller address | step 34 | Vercel step 36 |
 
-**Przygotowanie**
+**Preparation**
 
-1. Wejdź na vercel.com, kliknij Sign Up, zrób konto, wybierz plan Hobby.
-2. Otwórz terminal.
-3. Wpisz `npx vercel login` i potwierdź logowanie w przeglądarce.
+1. Go to vercel.com, click Sign Up, create an account, pick the Hobby plan.
+2. Open a terminal.
+3. Run `npx vercel login` and confirm the login in the browser.
 
-**Serwer signalingowy**
+**Signaling server**
 
 4. `cd D:\SUPERANRETAN\unity-remote-control\SignalingServer`
 5. `npx vercel --prod`
-6. Odpowiedz na pytania: **Which team** swoje konto, **Which project** `Create a new project`,
+6. Answer the questions: **Which team** your account, **Which project** `Create a new project`,
    **Name** `remote-signaling`, **Connect this Git repository** `no`, **Customize settings** `no`.
-7. Zapisz adres z linii **Production**, np. `https://remote-signaling.vercel.app`.
-8. W panelu Vercela otwórz projekt `remote-signaling`.
-9. Settings → Functions. Upewnij się, że **Fluid Compute** jest włączone. Jeśli nie, włącz i zapisz.
-10. Zakładka Storage → Marketplace → **Upstash for Redis** → Install.
+7. Write down the address from the **Production** line, e.g. `https://remote-signaling.vercel.app`.
+8. In the Vercel dashboard open the `remote-signaling` project.
+9. Settings → Functions. Make sure **Fluid Compute** is enabled. If not, enable it and save.
+10. Storage tab → Marketplace → **Upstash for Redis** → Install.
 11. Plan **Free**.
 12. Region **eu-central-1** Frankfurt → Create.
-13. **Connect to Project** → `remote-signaling` → zaznacz Production i Preview → zatwierdź.
-14. Settings → Environment Variables. Popatrz na listę zmiennych.
-15. Szukasz wartości zaczynającej się od `rediss://`. Jeśli jakakolwiek zmienna ją ma, idź do kroku 18.
-16. Jeśli widzisz tylko `KV_REST_API_URL` i `KV_REST_API_TOKEN`, wróć do Storage, otwórz kartę bazy, przejdź
-    do konsoli Upstasha i skopiuj **TCP** albo **RESP** connection string. Wygląda tak:
-    `rediss://default:haslo@nazwa.upstash.io:6379`.
-17. Wróć do Environment Variables → Add New. Key `REDIS_URL`, Value to co skopiowałeś, zaznacz Production
-    i Preview, Save.
-18. Add New. Key `ROOM_TOKEN`, Value wymyślony ciąg minimum 20 znaków. Zapisz go sobie. Production
-    i Preview, Save.
-19. `npx vercel --prod` jeszcze raz, bo zmienne działają dopiero od nowego deployu.
-20. `curl "https://remote-signaling.vercel.app/api/health?token=TWOJ_ROOM_TOKEN"`
-21. Musisz zobaczyć `"state": "ok"` i `"store": "redis"`. Jeśli nie, przeczytaj pole `detail`, jest tam
-    napisane czego brakuje.
+13. **Connect to Project** → `remote-signaling` → tick Production and Preview → confirm.
+14. Settings → Environment Variables. Look at the list of variables.
+15. You are looking for a value starting with `rediss://`. If any variable has one, jump to step 18.
+16. If you only see `KV_REST_API_URL` and `KV_REST_API_TOKEN`, go back to Storage, open the database card,
+    go to the Upstash console and copy the **TCP** or **RESP** connection string. It looks like this:
+    `rediss://default:password@name.upstash.io:6379`.
+17. Back in Environment Variables → Add New. Key `REDIS_URL`, Value what you copied, tick Production and
+    Preview, Save.
+18. Add New. Key `ROOM_TOKEN`, Value a made-up string of at least 20 characters. Write it down. Production
+    and Preview, Save.
+19. `npx vercel --prod` again, because variables only take effect from a new deployment.
+20. `curl "https://remote-signaling.vercel.app/api/health?token=YOUR_ROOM_TOKEN"`
+21. You must see `"state": "ok"` and `"store": "redis"`. If not, read the `detail` field — it says what is
+    missing.
 
 **Unity**
 
-22. Otwórz projekt kontrolera w Unity.
-23. Zaznacz `NetworkConfig.asset`.
+22. Open the controller project in Unity.
+23. Select `NetworkConfig.asset`.
 24. `Signaling Server Url` = `wss://remote-signaling.vercel.app/api/signaling`
-25. `Signaling Token` = `ROOM_TOKEN` z kroku 18
+25. `Signaling Token` = the `ROOM_TOKEN` from step 18
 26. `Device Timeout` = `15`
-27. Zapisz projekt.
+27. Save the project.
 
-**Build i wrzucenie kontrolera**
+**Building and uploading the controller**
 
-28. File → Build Profiles → Web. W liście scen zostaw tylko scenę kontrolera.
-29. Build, wskaż folder `Builds\WebGL`.
+28. File → Build Profiles → Web. Leave only the controller scene in the scene list.
+29. Build, pointing at the `Builds\WebGL` folder.
 30. `cp "Assets/RemoteControlCore/Deploy~/webgl-vercel.json" "Builds/WebGL/vercel.json"`
 31. `cd Builds\WebGL`
 32. `npx vercel --prod`
-33. Odpowiedz jak w kroku 6, tylko **Name** to `remote-controller`.
-34. Zapisz adres kontrolera z linii **Production**.
-35. Otwórz ten adres w przeglądarce. Scena Unity musi wstać.
+33. Answer as in step 6, except **Name** is `remote-controller`.
+34. Write down the controller address from the **Production** line.
+35. Open that address in a browser. The Unity scene must come up.
 
-**Domknięcie**
+**Closing the loop**
 
-36. Panel → `remote-signaling` → Settings → Environment Variables → Add New. Key `ALLOWED_ORIGINS`,
-    Value adres kontrolera z kroku 34 bez ukośnika na końcu. Production i Preview, Save.
-37. `cd D:\SUPERANRETAN\unity-remote-control\SignalingServer` i `npx vercel --prod`.
-38. Koniec. Vercel jest ustawiony i nie wracasz do niego, dopóki czegoś nie zmienisz. Co robić przy
-    zmianach: §A8.
+36. Dashboard → `remote-signaling` → Settings → Environment Variables → Add New. Key `ALLOWED_ORIGINS`,
+    Value the controller address from step 34 without a trailing slash. Production and Preview, Save.
+37. `cd D:\SUPERANRETAN\unity-remote-control\SignalingServer` and `npx vercel --prod`.
+38. Done. Vercel is configured and you do not go back to it until something changes. What to do when it
+    does: §A8.
 
-Dalej: host na Vision Pro dostaje ten sam adres i token w swoim `NetworkConfig`, sekcja D.
+Next: the Vision Pro host gets the same address and token in its own `NetworkConfig`, section D.
 
-### A0. Konto i CLI
+### A0. Account and CLI
 
-1. Konto na [vercel.com](https://vercel.com), plan **Hobby**, darmowy. Zaloguj się przez GitHub albo e-mail.
-2. Node jest już potrzebny, minimum 20. Sprawdź `node --version`.
-3. Zaloguj CLI raz na maszynie:
+1. An account on [vercel.com](https://vercel.com), **Hobby** plan, free. Sign in with GitHub or e-mail.
+2. Node is needed from here on, version 20 minimum. Check with `node --version`.
+3. Log the CLI in once per machine:
 
 ```bash
 npx vercel login
 ```
 
-Nic nie instalujesz globalnie, `npx` ściąga CLI na czas komendy. Repo nie importujesz i Gita nie
-podłączasz: `vercel` wysyła zawartość wskazanego folderu z dysku.
+Nothing is installed globally — `npx` fetches the CLI for the duration of the command. You do not import the
+repo and do not connect Git: `vercel` uploads the contents of the folder you point it at.
 
-### A1. Projekt signalingu
+### A1. The signaling project
 
 ```bash
 cd D:\SUPERANRETAN\unity-remote-control\SignalingServer && npx vercel --prod
 ```
 
-Pierwsze uruchomienie zapyta o kilka rzeczy. Dokładne brzmienie zależy od wersji CLI; w 59.x jest tak:
+The first run asks a few things. The exact wording depends on the CLI version; in 59.x it is:
 
-| Pytanie | Odpowiedź |
+| Question | Answer |
 |---|---|
-| Which team? | Twoje konto lub zespół |
+| Which team? | your account or team |
 | Which project? | `Create a new project` |
-| Name? | np. `remote-signaling` |
+| Name? | e.g. `remote-signaling` |
 | Connect this Git repository to automatically deploy changes on every push? | `no` |
 | Customize settings? | `no` |
 
-`Customize settings` zawsze `no`. Ustawienia biorą się z `vercel.json`, który jest w folderze, a wejście
-w kreator kazałoby tylko wpisać ręcznie to samo.
+`Customize settings` is always `no`. The settings come from the `vercel.json` in the folder, and going into
+the wizard would only have you type the same thing by hand.
 
-Pierwszy deploy zawsze idzie na produkcję. CLI wypisze dwa adresy: `Inspect` to panel z logami, a
-**`Production`** to adres serwera, np. `https://remote-signaling.vercel.app`. Ten drugi zapisz, jest
-potrzebny w Unity.
+The first deploy always goes to production. The CLI prints two addresses: `Inspect` is the dashboard with the
+logs, and **`Production`** is the server address, e.g. `https://remote-signaling.vercel.app`. Write the second
+one down — you need it in Unity.
 
-Projekt jest skonfigurowany tak, że Vercel buduje z niego **funkcje z katalogu `api/`**, a nie aplikację
-serwerową. Dlatego `vercel.json` ma `"framework": null`, a `package.json` nie ma pola `main`. Gdyby
-`main` wskazywał `server.js`, Vercel próbowałby uruchomić ten plik jako serwer i deploy padałby na
-`No entrypoint found`, bo `.vercelignore` celowo nie wysyła `server.js`.
+The project is configured so that Vercel builds **functions from the `api/` directory** rather than a server
+application. That is why `vercel.json` has `"framework": null` and `package.json` has no `main` field. If
+`main` pointed at `server.js`, Vercel would try to run that file as a server and the deploy would fail with
+`No entrypoint found`, because `.vercelignore` deliberately does not upload `server.js`.
 
-Powstał katalog `.vercel` w `SignalingServer/`. Trzyma powiązanie z projektem, więc kolejne
-`npx vercel --prod` z tego folderu nie pytają już o nic.
+A `.vercel` directory appears in `SignalingServer/`. It holds the link to the project, so later
+`npx vercel --prod` runs from that folder ask nothing.
 
-Plik `.vercelignore` pilnuje, żeby `server.js` nie poszedł na Vercela. To nie kosmetyka: Vercel traktuje
-`server.js` w katalogu głównym jako wejście serwera Node i skierowałby do niego cały ruch, omijając funkcję
-`api/signaling.js` i jej `maxDuration`. Lokalnie `npm start` dalej działa.
+The `.vercelignore` file makes sure `server.js` never reaches Vercel. This is not cosmetic: Vercel treats a
+root-level `server.js` as a Node server entry point and would route all traffic to it, bypassing the
+`api/signaling.js` function and its `maxDuration`. Locally, `npm start` still works.
 
-Sprawdź jeszcze w panelu, że Settings → Functions → **Fluid Compute** jest włączone. Dla nowych projektów
-jest domyślnie, a bez tego WebSockety nie działają. `vercel.json` w repo też to ustawia.
+One more thing to check in the dashboard: Settings → Functions → **Fluid Compute** must be enabled. It is the
+default for new projects, and without it WebSockets do not work. The repo's `vercel.json` sets it too.
 
-Alternatywa, jeśli wolisz Git: Add New → Project → import repo → **Root Directory `SignalingServer`** →
-Framework *Other*, Build Command i Output puste.
+Alternative, if you prefer Git: Add New → Project → import the repo → **Root Directory `SignalingServer`** →
+Framework *Other*, with Build Command and Output left empty.
 
 ### A2. Redis
 
-Redis **nie jest osobnym serwerem do utrzymania**. To baza tworzona z panelu Vercela, plan darmowy,
-rozliczana przez Vercela, bez maszyn i bez administracji.
+Redis is **not a separate server to maintain**. It is a database created from the Vercel dashboard, on the
+free plan, billed through Vercel, with no machines and no administration.
 
-Jest konieczna, bo funkcje Vercela są bezstanowe i nie ma przypinania klienta do instancji. Socket
-z headsetu ląduje na instancji A, socket z przeglądarki na B, a to dwa osobne procesy, które nie dzielą
-żadnej zmiennej. Bez wspólnego magazynu `offer` z przeglądarki nigdy nie dotarłby do hosta.
+It is required because Vercel functions are stateless and there is no client-to-instance pinning. The socket
+from the headset lands on instance A, the socket from the browser on B, and those are two separate processes
+sharing no variable. Without shared storage the browser's `offer` would never reach the host.
 
-Panel Vercela → projekt signalingu → **Storage** → **Marketplace** → **Upstash for Redis** →
-plan **Free** → region **eu-central-1 (Frankfurt)**, bo funkcje są przypięte do `fra1` w `vercel.json` →
-**Create** → **Connect to Project**, środowiska **Production** i **Preview**.
+Vercel dashboard → the signaling project → **Storage** → **Marketplace** → **Upstash for Redis** →
+**Free** plan → region **eu-central-1 (Frankfurt)**, because the functions are pinned to `fra1` in
+`vercel.json` → **Create** → **Connect to Project**, environments **Production** and **Preview**.
 
-Druga opcja z Marketplace to **Redis Cloud**: 30 MB, 100 operacji na sekundę, bez limitu miesięcznego.
-Nasze zużycie to kilka operacji na sekundę, więc też wystarcza. Kod obsługuje oba bez zmian.
+The other Marketplace option is **Redis Cloud**: 30 MB, 100 operations per second, no monthly cap. Our usage
+is a few operations per second, so it is enough as well. The code handles both without changes.
 
-### A3. Zmienne środowiskowe
+### A3. Environment variables
 
-Settings → **Environment Variables**, środowiska Production i Preview.
+Settings → **Environment Variables**, environments Production and Preview.
 
-**Najpierw sprawdź, czy jest połączenie po TCP.** Szukasz wartości zaczynającej się od `rediss://` pod
-dowolną z nazw: `REDIS_URL`, `KV_URL`, `REDIS_TLS_URL`, `UPSTASH_REDIS_URL`. Serwer sprawdza je w tej
-kolejności, więc jeśli któraś jest, nie robisz nic.
+**First check whether there is a TCP connection string.** You are looking for a value starting with
+`rediss://` under any of these names: `REDIS_URL`, `KV_URL`, `REDIS_TLS_URL`, `UPSTASH_REDIS_URL`. The server
+checks them in that order, so if one is there, you do nothing.
 
-Jeśli widzisz tylko `KV_REST_API_URL` i `KV_REST_API_TOKEN`, to są credentiale **REST**, a REST nie
-obsługuje `SUBSCRIBE`, którego serwer używa jako dzwonka między instancjami. Wtedy: karta Storage → otwórz
-konsolę providera → skopiuj **TCP / RESP connection string** w formacie
-`rediss://default:HASŁO@nazwa.upstash.io:6379` → dodaj ręcznie jako **`REDIS_URL`**. URL REST-owy wpisany
-w te zmienne jest odrzucany przy starcie z komunikatem, co skopiować, więc nie da się tego przeoczyć.
+If you only see `KV_REST_API_URL` and `KV_REST_API_TOKEN`, those are **REST** credentials, and REST does not
+support `SUBSCRIBE`, which the server uses as a doorbell between instances. In that case: Storage tab → open
+the provider console → copy the **TCP / RESP connection string** in the form
+`rediss://default:PASSWORD@name.upstash.io:6379` → add it manually as **`REDIS_URL`**. A REST URL put into
+those variables is rejected at startup with a message saying what to copy instead, so it cannot be missed.
 
-Dodaj jeszcze `ROOM_TOKEN`: losowy string, minimum 20 znaków, np. z `openssl rand -hex 16`. Ten sam wpiszesz
-w Unity. Drugą zmienną, `ALLOWED_ORIGINS`, dopiszesz w §A7, kiedy będziesz już znał domenę kontrolera.
+Add `ROOM_TOKEN` as well: a random string, at least 20 characters, e.g. from `openssl rand -hex 16`. You will
+enter the same one in Unity. The second variable, `ALLOWED_ORIGINS`, comes in §A7 once you know the
+controller's domain.
 
-Z terminala to samo robi się tak, jeśli nie chcesz klikać w panelu:
+From the terminal the same thing looks like this, if you would rather not click around the dashboard:
 
 ```bash
 npx vercel env add ROOM_TOKEN production
 ```
 
-Pełna lista zmiennych, w tym opcjonalne `ROOM_TOKENS` (kilka niezależnych pokoi na jednym serwerze),
-`DEVICE_TIMEOUT`, `PAIR_LEASE_SECONDS` i TURN, jest w [SignalingServer/README.md](SignalingServer/README.md) §2.3.
+The full list of variables, including the optional `ROOM_TOKENS` (several independent rooms on one server),
+`DEVICE_TIMEOUT`, `PAIR_LEASE_SECONDS` and TURN, is in
+[SignalingServer/README.md](SignalingServer/README.md) §2.3.
 
-Token jedzie w publicznej stronie WebGL, więc jest zaciemnieniem, nie uwierzytelnieniem. Trzyma z dala
-przypadkowych gości i crawlery. Rotuj go per wydarzenie.
+The token ships in the public WebGL page, so it is obfuscation, not authentication. It keeps accidental
+visitors and crawlers away. Rotate it per event.
 
-### A4. Redeploy i weryfikacja
+### A4. Redeploy and verification
 
-Zmienne działają dopiero od nowego deployu:
+Variables only take effect from a new deployment:
 
 ```bash
 cd D:\SUPERANRETAN\unity-remote-control\SignalingServer && npx vercel --prod
 ```
 
-Jedna komenda sprawdza całość:
+One command checks everything:
 
 ```bash
-curl "https://TWOJ-SIGNALING.vercel.app/api/health?token=TWOJ_ROOM_TOKEN"
+curl "https://YOUR-SIGNALING.vercel.app/api/health?token=YOUR_ROOM_TOKEN"
 ```
 
-Oczekujesz:
+You expect:
 
-| Pole | Wartość |
+| Field | Value |
 |---|---|
 | `state` | `ok` |
 | `store` | `redis` |
@@ -235,177 +241,185 @@ Oczekujesz:
 | `lua` | `ok` |
 | `misconfigured` | `null` |
 
-`redisUrlSource` mówi, z której zmiennej wzięte jest połączenie, `ping` to opóźnienie do bazy w
-milisekundach. Każdy inny wynik ma powód wpisany w `detail` albo `misconfiguredDetail`. Stan `degraded`
-znaczy, że pub/sub nie działa i negocjacja będzie leniwa. Stan `error` to nieosiągalny Redis albo odrzucony
-skrypt Lua; autotest przy starcie wywołuje na próbę każdy skrypt, więc literówka wychodzi natychmiast.
+`redisUrlSource` says which variable the connection came from, and `ping` is the latency to the database in
+milliseconds. Any other result has its reason in `detail` or `misconfiguredDetail`. State `degraded` means
+pub/sub is down and negotiation will be lazy. State `error` means Redis is unreachable or a Lua script was
+rejected; the startup self-test dry-runs every script, so a typo shows up immediately.
 
-Rejestr urządzeń podejrzysz przez `curl "https://TWOJ-SIGNALING.vercel.app/api/devices?token=TWOJ_ROOM_TOKEN"`.
-Przed uruchomieniem hosta zwróci `[]`.
+You can inspect the device registry with
+`curl "https://YOUR-SIGNALING.vercel.app/api/devices?token=YOUR_ROOM_TOKEN"`. Before the host starts, it
+returns `[]`.
 
-Na tym etapie serwer jest gotowy i więcej go nie ruszasz, poza jednorazowym dopisaniem allowlisty w §A7.
+At this point the server is ready and you do not touch it again, apart from adding the allowlist once in §A7.
 
-### A5. Adres do Unity
+### A5. The address into Unity
 
-Zanim zbudujesz kontrolera, wpisz dane serwera do `NetworkConfig` w swoim projekcie. Szczegóły w §B3,
-w skrócie: `Signaling Server Url` = `wss://TWOJ-SIGNALING.vercel.app/api/signaling`,
+Before you build the controller, put the server details into `NetworkConfig` in your project. Details in §B3;
+in short: `Signaling Server Url` = `wss://YOUR-SIGNALING.vercel.app/api/signaling`,
 `Signaling Token` = `ROOM_TOKEN`, `Device Timeout` = 15.
 
-Adres jest **wypalany w buildzie**, więc każda jego zmiana wymaga nowego builda WebGL.
+The address is **baked into the build**, so any change to it needs a new WebGL build.
 
-### A6. Projekt kontrolera, czyli wrzucenie builda
+### A6. The controller project, i.e. uploading the build
 
-Zbuduj kontrolera: Build Profiles → **Web** → w liście scen tylko scena kontrolera → Build, np. do
-`Builds/WebGL`.
+Build the controller: Build Profiles → **Web** → only the controller scene in the scene list → Build, e.g.
+into `Builds/WebGL`.
 
-Jeśli build jest skompresowany, a tak jest domyślnie, skopiuj obok `index.html` plik nagłówków z paczki
-i nazwij go `vercel.json`:
+If the build is compressed, which it is by default, copy the header file from the package next to
+`index.html` and name it `vercel.json`:
 
 ```bash
 cp "Assets/RemoteControlCore/Deploy~/webgl-vercel.json" "Builds/WebGL/vercel.json"
 ```
 
-Bez tego pliku strona pokaże białe tło, bo przeglądarka dostanie skompresowane pliki bez nagłówka
-`Content-Encoding`. Alternatywa: włącz **Decompression Fallback** w Player Settings, wtedy nagłówki są
-zbędne, kosztem trochę większego pobrania. Sprawdzić, co masz, możesz w Player Settings → Publishing
-Settings → Compression Format.
+Without that file the page shows a white background, because the browser receives compressed files with no
+`Content-Encoding` header. The alternative is to enable **Decompression Fallback** in Player Settings, which
+makes the headers unnecessary at the cost of a slightly larger download. You can see which one you have under
+Player Settings → Publishing Settings → Compression Format.
 
-Wrzuć folder jako drugi projekt:
+Upload the folder as a second project:
 
 ```bash
 cd Builds\WebGL && npx vercel --prod
 ```
 
-Odpowiedzi na pytania jak w §A1, tylko nazwa inna, np. `remote-controller`. Vercel rozpozna statyczną
-stronę sam, bez build commanda. Na końcu dostaniesz adres kontrolera, np.
-`https://remote-controller.vercel.app`. Otwórz go, powinna wstać scena Unity.
+Answer the questions as in §A1, only with a different name, e.g. `remote-controller`. Vercel recognises a
+static page by itself, with no build command. At the end you get the controller address, e.g.
+`https://remote-controller.vercel.app`. Open it — the Unity scene should come up.
 
-Uwaga praktyczna: Unity przy kolejnym buildzie potrafi wyczyścić folder wyjściowy razem z `vercel.json`
-i katalogiem `.vercel`. Jeśli tak się stanie, po prostu skopiuj `vercel.json` ponownie, a `npx vercel --prod`
-zapyta o projekt i wtedy wybierasz **Link to existing project** i nazwę `remote-controller`. Kto woli mieć
-z tym spokój, trzyma stały folder wdrożeniowy poza Unity i kopiuje do niego wynik builda.
+A practical note: on the next build Unity may clear the output folder along with `vercel.json` and the
+`.vercel` directory. If that happens, simply copy `vercel.json` again; `npx vercel --prod` will then ask
+about the project, and you choose **Link to existing project** and the name `remote-controller`. If you would
+rather not deal with that, keep a permanent deployment folder outside Unity and copy the build result into it.
 
-### A7. Domknięcie: allowlista Origin
+### A7. Closing the loop: the Origin allowlist
 
-Wróć do projektu signalingu, Settings → Environment Variables, i dodaj:
+Go back to the signaling project, Settings → Environment Variables, and add:
 
-| Zmienna | Wartość |
+| Variable | Value |
 |---|---|
-| `ALLOWED_ORIGINS` | `https://remote-controller.vercel.app`, czyli sam origin kontrolera, bez ścieżki i bez ukośnika na końcu. Kilka domen po przecinku |
+| `ALLOWED_ORIGINS` | `https://remote-controller.vercel.app`, i.e. the controller's origin only, no path and no trailing slash. Several domains separated by commas |
 
-Potem redeploy signalingu, bo zmienne działają od nowego deployu:
+Then redeploy signaling, because variables take effect from a new deployment:
 
 ```bash
 cd D:\SUPERANRETAN\unity-remote-control\SignalingServer && npx vercel --prod
 ```
 
-Od tego momentu przeglądarka z innej domeny nie podłączy się do Twojego signalingu. Vision Pro nie wysyła
-nagłówka `Origin`, więc jego to nie dotyczy; jego bramką jest token.
+From then on a browser on another domain cannot connect to your signaling server. The Vision Pro does not
+send an `Origin` header, so this does not apply to it; its gate is the token.
 
-### A8. Aktualizacje później
+### A8. Updates later on
 
-| Co zmieniłeś | Co robisz |
+| What you changed | What you do |
 |---|---|
-| UI kontrolera, sceny, cokolwiek w Unity | build WebGL, skopiuj `vercel.json`, `npx vercel --prod` w folderze builda |
-| adres lub token signalingu | popraw `NetworkConfig`, potem build i upload jak wyżej |
-| zmienną środowiskową na serwerze | zmień w panelu, potem `npx vercel --prod` w `SignalingServer` |
-| kod serwera signalingowego | `npx vercel --prod` w `SignalingServer`, nigdy w trakcie prezentacji |
+| controller UI, scenes, anything in Unity | build for WebGL, copy `vercel.json`, `npx vercel --prod` in the build folder |
+| the signaling address or token | fix `NetworkConfig`, then build and upload as above |
+| an environment variable on the server | change it in the dashboard, then `npx vercel --prod` in `SignalingServer` |
+| the signaling server code | `npx vercel --prod` in `SignalingServer`, never mid-presentation |
 
-### A9. Zasady eksploatacji
+### A9. Operating rules
 
-- **Nie deployuj serwera w trakcie prezentacji.** Stare połączenia zostają na starym deploymencie do
-  zamknięcia, nowe idą na nowy. Dane w Redisie są wspólne, więc jest to przeżywalne, ale nie przy widowni.
-- Region funkcji i region bazy trzymaj razem. Redis jednoregionowy, nigdy Global.
-- Vercel Hobby jest wg regulaminu do użytku niekomercyjnego. Jeśli prezentacja jest komercyjna, to kwestia
-  licencyjna, nie techniczna.
-- Opcjonalnie: Project → Firewall → rate limit na ścieżce `/api/signaling`, np. 30 żądań na minutę na IP.
+- **Do not deploy the server during a presentation.** Existing connections stay on the old deployment until
+  they close, new ones go to the new deployment. The Redis data is shared, so it is survivable, but not in
+  front of an audience.
+- Keep the function region and the database region together. Redis single-region, never Global.
+- Vercel Hobby is, per its terms, for non-commercial use. If the presentation is commercial, that is a
+  licensing question, not a technical one.
+- Optional: Project → Firewall → a rate limit on the `/api/signaling` path, e.g. 30 requests per minute per
+  IP.
 
 ---
 
-## B. Instalacja paczki w projekcie kontrolera
+## B. Installing the package in the controller project
 
-### B1. Dodanie paczki
+### B1. Adding the package
 
 Window → Package Manager → **+** → **Add package from git URL**:
 
 ```
-https://github.com/superanretan/unity-remote-control.git?path=Assets/RemoteControlCore#vpwebgl2.0
+https://github.com/superanretan/unity-remote-control.git?path=Assets/RemoteControlCore#vpwebgl2.2
 ```
 
-Zamiast tagu możesz wskazać gałąź, ale na produkcję trzymaj się tagu. Wymagania paczki: Unity 6000.0+,
-`com.unity.transport` 2.4+, `com.unity.ugui`, TextMeshPro. Zależności ciągną się same z `package.json`.
+`vpwebgl2.2` is the newest tag and the one to use — it resolves to package version **2.2.0**. The tag
+history of the 2.x line is in [REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.md) §6.
 
-### B2. Wygeneruj własne assety ScriptableObject
+You can point at a branch instead of the tag, but for production stick to the tag. Package requirements:
+Unity 6000.0+, `com.unity.transport` 2.4+, `com.unity.ugui`, TextMeshPro. The dependencies come along by
+themselves from `package.json`.
 
-**To jest krok, który łatwo przeoczyć.** Paczka zainstalowana z Git URL leży w `Library/PackageCache`
-i jest **tylko do czytania**. Assetów SO z paczki nie da się edytować, a `NetworkConfig` musi dostać Twój
-adres serwera i token.
+### B2. Generate your own ScriptableObject assets
+
+**This is the step that is easy to miss.** A package installed from a Git URL lives in `Library/PackageCache`
+and is **read-only**. The package's own SO assets cannot be edited, and `NetworkConfig` has to receive your
+server address and token.
 
 Menu: **Tools ▸ Remote Control ▸ WebRTC ▸ Create SO Assets**
 
-Tworzy komplet w `Assets/RemoteControl/SO/` w Twoim projekcie: `NetworkConfig`, `CommandSendChannel`,
+It creates a full set in `Assets/RemoteControl/SO/` in your project: `NetworkConfig`, `CommandSendChannel`,
 `CommandReceivedChannel`, `ConnectRequestChannel`, `DisconnectRequestChannel`, `OnConnectedChannel`,
 `OnDisconnectedChannel`, `OnClientConnectedChannel`, `OnClientDisconnectedChannel`, `LogChannel`,
 `HostMessageSendChannel`, `HostMessageReceivedChannel`, `HandlerRegistry`, `TargetRegistry`.
-Istniejących assetów nie nadpisuje, więc możesz uruchamiać wielokrotnie.
+It never overwrites an existing asset, so you can run it repeatedly.
 
-Pojedyncze assety zrobisz też przez **Create ▸ Remote Control ▸ …**.
+Individual assets can also be made through **Create ▸ Remote Control ▸ …**.
 
-Jeśli chcesz gotowe prefaby i sceny demonstracyjne w swoim projekcie:
-**Tools ▸ Remote Control ▸ WebRTC ▸ Create Prefabs** oraz **Build WebGL Controller Scene**. Do własnego UI
-nie są potrzebne, ale bywają wygodne jako referencja.
+If you want the ready-made demo prefabs and scenes in your project:
+**Tools ▸ Remote Control ▸ WebRTC ▸ Create Prefabs** and **Build WebGL Controller Scene**. They are not
+needed for your own UI, but they are handy as a reference.
 
-### B3. Konfiguracja `NetworkConfig`
+### B3. Configuring `NetworkConfig`
 
-Zaznacz `Assets/RemoteControl/SO/NetworkConfig.asset` i ustaw:
+Select `Assets/RemoteControl/SO/NetworkConfig.asset` and set:
 
-| Pole | Wartość |
+| Field | Value |
 |---|---|
-| **Signaling Server Url** | `wss://TWOJ-SIGNALING.vercel.app/api/signaling` |
-| **Signaling Token** | to samo co `ROOM_TOKEN` na serwerze |
-| **Device Name** | nazwa hosta na liście, np. `Vision Pro Office` |
+| **Signaling Server Url** | `wss://YOUR-SIGNALING.vercel.app/api/signaling` |
+| **Signaling Token** | the same as `ROOM_TOKEN` on the server |
+| **Device Name** | the host's name in the list, e.g. `Vision Pro Office` |
 | **Heartbeat Interval** | 2 |
-| **Video Width / Height** | 960 / 540 — sufit dla podglądu; headset renderuje dodatkowy przebieg w tym rozmiarze |
-| **Video Fps** | 15 — płynne dość, a kosztuje połowę tego co 30 |
+| **Video Width / Height** | 960 / 540 — the ceiling for a preview; the headset renders an extra pass at this size |
+| **Video Fps** | 15 — smooth enough, and costs half of what 30 does |
 | **Video Bitrate Kbps** | 1200 |
 | **Device Timeout** | 15 |
-| **Ice Server Entries** | jeden wpis STUN wystarcza w tej samej sieci Wi-Fi |
+| **Ice Server Entries** | one STUN entry is enough on the same Wi-Fi network |
 
-Ten sam asset trafia do projektu hosta na Vision Pro. Adres jest **wypalany w buildzie**, więc ustaw go
-przed buildem. Token doklejany jest automatycznie jako `?token=…`, nie dopisuj go do URL-a ręcznie.
+The same asset goes into the Vision Pro host project. The address is **baked into the build**, so set it
+before building. The token is appended automatically as `?token=…` — do not add it to the URL by hand.
 
-Pole zserializowane `_signalingServerUrl` celowo nie zmieniło nazwy między 1.x i 2.0, więc jeśli w swoim
-projekcie nadpisujesz je w runtime po nazwie pola, ten mechanizm działa dalej.
+The serialized `_signalingServerUrl` field deliberately kept its name between 1.x and 2.0, so if your project
+overrides it at runtime by field name, that mechanism still works.
 
-TURN: potrzebny tylko wtedy, gdy przeglądarka i headset są w różnych sieciach. Wpis z `username` i
-`credential` dodaj w `Ice Server Entries`, ale pamiętaj, że trafia do publicznego builda. Lepszy wariant to
-krótkożyciowe credentiale wydawane przez serwer, opisane w [REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.md) §3.2.
+TURN: only needed when the browser and the headset are on different networks. Add an entry with `username`
+and `credential` under `Ice Server Entries`, but remember that it ships in the public build. The better
+option is short-lived credentials issued by the server, described in
+[REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.md) §3.2.
 
 ---
 
-## C. Kontroler WebGL z własnym UI
+## C. A WebGL controller with your own UI
 
-### C1. Co musi być w scenie
+### C1. What must be in the scene
 
-Dwa komponenty, mogą wisieć na jednym pustym GameObjekcie:
+Two components, which can both sit on one empty GameObject:
 
-| Komponent | Rola | Pola do przypięcia |
+| Component | Role | Fields to wire |
 |---|---|---|
-| `WebGLDiscoveryClient` | trzyma WebSocket do signalingu i lustrzy listę urządzeń | `Network Config`, `Log Channel`, `Poll Interval` (5) |
-| `WebGLRemoteTransport` | WebRTC, DataChannel, komendy w obie strony | `Network Config`, `Command Send Channel`, `Connect Request Channel`, `Disconnect Request Channel`, `On Connected Channel`, `On Disconnected Channel`, `Host Message Received Channel`, `Log Channel` |
+| `WebGLDiscoveryClient` | holds the WebSocket to signaling and mirrors the device list | `Network Config`, `Log Channel`, `Poll Interval` (5) |
+| `WebGLRemoteTransport` | WebRTC, DataChannel, commands both ways | `Network Config`, `Command Send Channel`, `Connect Request Channel`, `Disconnect Request Channel`, `On Connected Channel`, `On Disconnected Channel`, `Host Message Received Channel`, `Log Channel` |
 
-`WebGLRemoteTransport` ma też `Auto Request Id`, `Auto Reconnect`, `Max Reconnect Attempts` i
-`Reconnect Delay`. Domyślne wartości są dobre.
+`WebGLRemoteTransport` also has `Auto Request Id`, `Auto Reconnect`, `Max Reconnect Attempts` and
+`Reconnect Delay`. The defaults are fine.
 
-**Nie dodawaj** `RemoteControl_ClientCore` ani `TransportClient` do scen WebGL. Unity Transport po UDP nie
-działa w przeglądarce.
+Do **not** add `RemoteControl_ClientCore` or `TransportClient` to WebGL scenes. Unity Transport over UDP does
+not work in a browser.
 
-Poza WebGL oba komponenty są bezpiecznym no-opem, więc scena uruchomi się w Edytorze bez błędów, tylko bez
-połączenia.
+Outside WebGL both components are a safe no-op, so the scene runs in the Editor without errors, just without
+a connection.
 
-### C2. Lista urządzeń w swoim UI
+### C2. The device list in your own UI
 
-`WebGLDiscoveryClient` dziedziczy po `RemoteDiscoveryBase`, więc UI nie musi wiedzieć nic o WebRTC:
+`WebGLDiscoveryClient` derives from `RemoteDiscoveryBase`, so the UI needs to know nothing about WebRTC:
 
 ```csharp
 using System.Collections.Generic;
@@ -414,7 +428,7 @@ using UnityEngine;
 
 public class MyDevicePicker : MonoBehaviour
 {
-    [SerializeField] private RemoteDiscoveryBase _discovery;          // WebGLDiscoveryClient ze scen
+    [SerializeField] private RemoteDiscoveryBase _discovery;              // WebGLDiscoveryClient from the scene
     [SerializeField] private StringEventChannel _connectRequestChannel;   // SO: ConnectRequestChannel
     [SerializeField] private VoidEventChannel _disconnectRequestChannel;  // SO: DisconnectRequestChannel
 
@@ -437,7 +451,7 @@ public class MyDevicePicker : MonoBehaviour
     {
         _devices.Clear();
         _devices.AddRange(devices);
-        // Tu przebuduj swoją listę. d.deviceName na etykietę, d.IsAvailable na blokadę "busy".
+        // Rebuild your list here. d.deviceName for the label, d.IsAvailable for the "busy" lock.
     }
 
     private void OnStatus(string status) { /* "Searching for devices...", "Signaling reconnecting..." */ }
@@ -448,37 +462,39 @@ public class MyDevicePicker : MonoBehaviour
 }
 ```
 
-`DiscoveredDevice` ma `deviceId`, `deviceName`, `platform`, `status`, `IsAvailable` i `ConnectKey`.
-`ConnectKey` to wartość, którą podnosisz na `ConnectRequestChannel`.
+`DiscoveredDevice` has `deviceId`, `deviceName`, `platform`, `status`, `IsAvailable` and `ConnectKey`.
+`ConnectKey` is the value you raise on `ConnectRequestChannel`.
 
-Nie chcesz szukać komponentu w Inspectorze: dodaj do obiektu z UI komponent `DiscoveryBinder`, który
-znajduje backend w scenie przy starcie i wstrzykuje go do `NetworkDiscoveryPanel`. Do własnego UI prościej
-jest przypiąć referencję ręcznie albo raz wywołać `FindFirstObjectByType<RemoteDiscoveryBase>()`.
+If you would rather not look the component up in the Inspector: add the `DiscoveryBinder` component to the UI
+object — it finds the backend in the scene at startup and injects it into `NetworkDiscoveryPanel`. For your
+own UI it is simpler to wire the reference by hand, or call `FindFirstObjectByType<RemoteDiscoveryBase>()`
+once.
 
-Stan połączenia: `OnConnectedChannel` i `OnDisconnectedChannel` (`VoidEventChannel`). Na nich pokazujesz
-i chowasz swój panel sterowania.
+Connection state: `OnConnectedChannel` and `OnDisconnectedChannel` (`VoidEventChannel`). Use them to show and
+hide your control panel.
 
-### C3. Wysyłanie komend
+### C3. Sending commands
 
-Zero zależności od transportu. Podnosisz `RemoteCommand` na `CommandSendChannel`:
+Zero dependency on the transport. You raise a `RemoteCommand` on `CommandSendChannel`:
 
 ```csharp
 _commandSendChannel.Raise(new RemoteCommand("set_color", "demo_cube", "#FF0000"));
 ```
 
-Pola: `commandType` to klucz handlera na hoście, `targetId` to `CommandTarget.TargetId` obiektu w scenie
-hosta, `value` i `payload` interpretuje handler.
+The fields: `commandType` is the handler key on the host, `targetId` is the `CommandTarget.TargetId` of an
+object in the host scene, and `value` and `payload` are interpreted by the handler.
 
-Bez kodu: dodaj komponent **`CommandButton`** na przycisk i wypełnij `Command Type`, `Target Id`, `Value`,
-`Payload`, `Command Send Channel`. Opcjonalne `On Connected Channel` i `On Disconnected Channel` sprawiają,
-że przycisk jest klikalny tylko po połączeniu. Wartość zmienisz w locie przez `CommandButton.SetValue`.
+Without code: add the **`CommandButton`** component to a button and fill in `Command Type`, `Target Id`,
+`Value`, `Payload` and `Command Send Channel`. The optional `On Connected Channel` and
+`On Disconnected Channel` make the button clickable only while connected. The value can be changed at runtime
+through `CommandButton.SetValue`.
 
-Potwierdzenia: ustaw `RemoteCommand.requestId` albo włącz `Auto Request Id` na `WebGLRemoteTransport`.
-Host odpowie kopertą `ack` z tym samym `requestId`.
+Acknowledgements: set `RemoteCommand.requestId`, or enable `Auto Request Id` on `WebGLRemoteTransport`. The
+host answers with an `ack` envelope carrying the same `requestId`.
 
-### C4. Odbiór stanu z hosta
+### C4. Receiving state from the host
 
-Host wysyła `HostMessage` na DataChannelu. Każda wiadomość ląduje bez zmian na
+The host sends `HostMessage`s over the DataChannel. Every message lands verbatim on
 `HostMessageReceivedChannel` (`StringEventChannel`):
 
 ```csharp
@@ -497,86 +513,89 @@ public class MyControllerState : MonoBehaviour
         var msg = HostMessage.FromJson(json);
         if (msg == null) return;
 
-        if (msg.IsSnapshot)                                  // pełny stan zaraz po połączeniu
+        if (msg.IsSnapshot)                                  // full state right after connecting
             foreach (var e in msg.SnapshotEntries()) Apply(e.topic, e.value);
-        else if (msg.IsState)                                // zmiana przyrostowa
+        else if (msg.IsState)                                // incremental change
             Apply(msg.topic, msg.value);
         else if (msg.IsCapture)                              // starting | streaming | stopped | error
             ShowCaptureBadge(msg.value, msg.payload);
-        else if (msg.IsAck)                                  // odpowiedź na komendę z requestId
+        else if (msg.IsAck)                                  // reply to a command with a requestId
             ClearPending(msg.requestId);
     }
 
-    private void Apply(string topic, string value) { /* np. podświetl aktywny compartment */ }
+    private void Apply(string topic, string value) { /* e.g. highlight the active compartment */ }
     private void ShowCaptureBadge(string state, string detail) { }
     private void ClearPending(string requestId) { }
 }
 ```
 
-Dwie rzeczy warte podkreślenia. **Snapshot** przychodzi automatycznie po otwarciu DataChannelu i zawiera
-ostatnią wartość każdego tematu, więc UI nigdy nie startuje z pustym stanem i nie musisz o nic pytać.
-**Stan capture jest niezależny od DataChannelu**: „połączono" nie znaczy „obraz idzie", dopiero
-`capture` = `streaming` to znaczy.
+Two things worth stressing. The **snapshot** arrives automatically once the DataChannel opens and contains the
+last value of every topic, so the UI never starts from an empty state and you never have to ask for
+anything. And **capture state is independent of the DataChannel**: "connected" does not mean "video is
+flowing" — only `capture` = `streaming` means that.
 
-Wolisz zdarzenie C# od kanału SO: `WebGLRemoteTransport` wystawia `event Action<HostMessage> OnHostMessage`.
+If you prefer a C# event over an SO channel, `WebGLRemoteTransport` exposes
+`event Action<HostMessage> OnHostMessage`.
 
-### C5. Podgląd obrazu z headsetu
+### C5. Previewing the headset's view
 
-Dodaj `RawImage` do Canvasu, a na tym samym obiekcie komponent **`RemoteVideoView`**. Przypnij `Target`
-(ten `RawImage`), opcjonalnie `Aspect Fitter` (`AspectRatioFitter`), `On Disconnected Channel` i
-`Log Channel`. Tekstura tworzy się sama w rozdzielczości strumienia. Pole `Use Html Overlay` pokazuje surowy
-element `<video>` nad canvasem i służy tylko do diagnostyki.
+Add a `RawImage` to the Canvas and the **`RemoteVideoView`** component on the same object. Wire up `Target`
+(that `RawImage`) and optionally `Aspect Fitter` (`AspectRatioFitter`), `On Disconnected Channel` and
+`Log Channel`. The texture is created by itself at the stream resolution. The `Use Html Overlay` field draws
+the raw `<video>` element over the canvas and is only for diagnostics.
 
-### C6. Build WebGL i wrzucenie na Vercel
+### C6. WebGL build and upload to Vercel
 
-Komendy i pytania CLI są w **§A6**, żeby cała ścieżka wdrożeniowa była w jednym miejscu. Tutaj tylko rzeczy
-specyficzne dla builda kontrolera:
+The commands and the CLI questions are in **§A6**, so the whole deployment path stays in one place. Here,
+only the things specific to the controller build:
 
-- W liście scen buildu ma być **tylko** scena kontrolera.
-- Adres signalingu z `NetworkConfig` jest wypalany w buildzie. Zmiana adresu albo tokenu to nowy build.
-- Kompresja: domyślnie Brotli z wyłączonym fallbackiem, co wymaga nagłówków `Content-Encoding` po stronie
-  hostingu. Gotowy plik leży w paczce jako `Deploy~/webgl-vercel.json` i kopiujesz go do folderu builda pod
-  nazwą `vercel.json`. Prostsza alternatywa: włącz **Decompression Fallback** w Player Settings i zapomnij
-  o nagłówkach.
-- Pliki `.br` bez tych nagłówków dają białą stronę bez żadnego sensownego błędu w konsoli.
-- Strona po HTTPS może otwierać tylko `wss://`. Dlatego lokalny dev po LAN-ie robi się na stronie po zwykłym
-  `http://` z `ws://<ip-pc>:8787`, a nie na wersji z Vercela.
+- The build's scene list must contain **only** the controller scene.
+- The signaling address from `NetworkConfig` is baked into the build. Changing the address or the token means
+  a new build.
+- Compression: Brotli by default, with fallback disabled, which requires `Content-Encoding` headers from the
+  hosting. The ready-made file is in the package as `Deploy~/webgl-vercel.json` and you copy it into the
+  build folder as `vercel.json`. The simpler alternative: enable **Decompression Fallback** in Player
+  Settings and forget about headers.
+- `.br` files without those headers give a white page with no meaningful error in the console.
+- A page served over HTTPS can only open `wss://`. That is why local LAN development is done on a plain
+  `http://` page with `ws://<pc-ip>:8787`, not on the Vercel version.
 
 ---
 
-## D. Host na Vision Pro
+## D. The Vision Pro host
 
-### D1. Komponenty w scenie
+### D1. Components in the scene
 
-Najprościej wrzucić prefab `RemoteControl_VisionProHost`. Ręcznie to trzy komponenty na jednym obiekcie:
+The simplest route is to drop in the `RemoteControl_VisionProHost` prefab. By hand it is three components on
+one object:
 
-| Komponent | Pola |
+| Component | Fields |
 |---|---|
-| `VisionProSignalingClient` | `Network Config`, `Log Channel`, `Auto Connect`, opcjonalnie `Device Name Override` |
-| `VisionProWebRtcHost` | `Network Config`, `Signaling` (powyższy komponent), `Command Received Channel`, `On Client Connected Channel`, `On Client Disconnected Channel`, `Host Message Send Channel`, `Log Channel`, `Capture Backend` = Auto, `Auto Start Capture` = on, `Send Snapshot On Connect` = on, `Ack Commands` = on |
+| `VisionProSignalingClient` | `Network Config`, `Log Channel`, `Auto Connect`, optionally `Device Name Override` |
+| `VisionProWebRtcHost` | `Network Config`, `Signaling` (the component above), `Command Received Channel`, `On Client Connected Channel`, `On Client Disconnected Channel`, `Host Message Send Channel`, `Log Channel`, `Capture Backend` = Auto, `Auto Start Capture` = on, `Send Snapshot On Connect` = on, `Ack Commands` = on |
 | `CommandProcessor` | `Command Received Channel`, `Handler Registry`, `Target Registry`, `Log Channel` |
-| `VisionCameraStreamer` | `Network Config`, `Log Channel`; opcjonalnie `Source Camera`, `Follow Target`, `Field Of View`, `Culling Mask` |
+| `VisionCameraStreamer` | `Network Config`, `Log Channel`; optionally `Source Camera`, `Follow Target`, `Field Of View`, `Culling Mask` |
 
-**Jeśli aplikacja hosta jest w pełni immersyjna (Metal / Compositor Services), obraz musi iść z
-`VisionCameraStreamer`.** ReplayKit łapie *okno* aplikacji, a immersyjna aplikacja nigdy do niego nie rysuje —
-strumień idzie wtedy równomiernie czarny, mimo że przeglądarka liczy dekodowane klatki. Wystarczy dodać
-komponent do scenki: `Capture Backend` = `Auto` **sam** wybierze wtedy `UnityCamera` i napisze o tym w logu.
-Domyślnie kamera obserwatora podąża za `Camera.main`, czyli operator widzi z grubsza to co użytkownik gogli;
-`Source Camera` daje stały widok (jej ustawienia są kopiowane, Twoja kamera w scenie zostaje nietknięta).
-Dla aplikacji **okienkowej** nie dodawaj streamera — `Auto` zostanie przy ReplayKicie.
+**If the host application is fully immersive (Metal / Compositor Services), the picture has to come from
+`VisionCameraStreamer`.** ReplayKit captures the app's *window*, and an immersive app never draws into it —
+the stream then comes out uniformly black even though the browser counts decoded frames. Adding the component
+to the scene is enough: `Capture Backend` = `Auto` then picks `UnityCamera` **by itself** and says so in the
+log. By default the spectator camera follows `Camera.main`, so the operator sees roughly what the wearer sees;
+`Source Camera` gives a fixed view instead (its settings are copied, and your scene camera is left
+untouched). For a **windowed** app do not add the streamer — `Auto` stays with ReplayKit.
 
-Ten strumień kosztuje headset jeden dodatkowy render na klatkę, więc trzymaj `NetworkConfig` nisko:
-**960x540, 15 fps, 1200 kbit/s** to sufit dla podglądu, a `Culling Mask` na streamerze to najtańsza
-oszczędność jaka tu istnieje. Kamera obserwatora jest wyłączona i renderowana tylko na te klatki, które
-faktycznie lecą do przeglądarki — bez postprocesu, bez MSAA, bez HDR i bez cieni.
+That stream costs the headset one extra render per frame, so keep `NetworkConfig` low: **960x540, 15 fps,
+1200 kbit/s** is the ceiling for a preview, and the streamer's `Culling Mask` is the cheapest saving there is
+here. The spectator camera is disabled and rendered only on the frames that actually go to the browser — no
+post-processing, no MSAA, no HDR and no shadows.
 
-`NetworkConfig` musi być **tym samym** assetem co w kontrolerze, z tym samym adresem i tokenem. Jeśli host
-i kontroler to dwa różne projekty Unity, po prostu ustaw w obu identyczne wartości.
+`NetworkConfig` must be **the same** asset as in the controller, with the same address and token. If the host
+and the controller are two different Unity projects, just set identical values in both.
 
-`Device Id` hosta jest trwały: generuje się raz i siedzi w `PlayerPrefs`, więc host wraca na listę pod tym
-samym wpisem po restarcie i po wymuszonym reconnectcie.
+The host's `Device Id` is persistent: it is generated once and stored in `PlayerPrefs`, so the host comes back
+to the list under the same entry after a restart and after a forced reconnect.
 
-### D2. Komendy: handler i target
+### D2. Commands: handler and target
 
 ```csharp
 using SuperAnretan.RemoteControl;
@@ -584,7 +603,7 @@ using UnityEngine;
 
 public class SetCompartmentHandler : CommandHandlerBase
 {
-    public override string CommandType => "set_compartment";      // musi zgadzać się z commandType z kontrolera
+    public override string CommandType => "set_compartment";      // must match the controller's commandType
 
     public override void Handle(RemoteCommand command, GameObject target)
     {
@@ -593,13 +612,13 @@ public class SetCompartmentHandler : CommandHandlerBase
 }
 ```
 
-Handler wrzuć na dowolny obiekt w scenie i przypnij `Handler Registry`. Rejestruje się sam w `OnEnable`.
-Na obiekcie, którym sterujesz, dodaj `CommandTarget`, ustaw `Target Id` i przypnij `Registry`
-(`TargetRegistry`). Zasady: jeden `CommandType` to jeden handler, jeden `TargetId` to jeden obiekt.
+Put the handler on any object in the scene and assign `Handler Registry`. It registers itself in `OnEnable`.
+On the object you are controlling, add `CommandTarget`, set `Target Id` and assign `Registry`
+(`TargetRegistry`). Rules: one `CommandType` is one handler, one `TargetId` is one object.
 
-### D3. Odsyłanie stanu do kontrolera
+### D3. Sending state back to the controller
 
-Kod aplikacji **nie woła** `VisionProNativeBridge` bezpośrednio. Podnosisz gotowy JSON na
+Application code **does not call** `VisionProNativeBridge` directly. You raise ready-made JSON on
 `HostMessageSendChannel`:
 
 ```csharp
@@ -609,79 +628,79 @@ private void OnCompartmentChanged(string id) =>
     _hostMessageSendChannel.Raise(HostMessage.State("navigation", id).ToJson());
 ```
 
-Albo bezpośrednio na komponencie: `visionProWebRtcHost.SetState("navigation", id)`.
+Or directly on the component: `visionProWebRtcHost.SetState("navigation", id)`.
 
-Host cache'uje ostatnią wartość każdego tematu, także gdy nikt nie jest połączony, i wysyła je jednym
-snapshotem po otwarciu DataChannelu. Stan capture (`starting`, `streaming`, `stopped`, `error` z kodem)
-i `ack` na komendy z `requestId` idą automatycznie, nic z tym nie robisz.
+The host caches the last value of every topic, even when nobody is connected, and sends them as one snapshot
+once the DataChannel opens. Capture state (`starting`, `streaming`, `stopped`, `error` with a code) and
+`ack`s for commands carrying a `requestId` are sent automatically — you do nothing about them.
 
-Format koperty i pełna lista typów: [REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.md) §1.
+The envelope format and the full list of types: [REMOTE_CONTROLLER.md](REMOTE_CONTROLLER.md) §1.
 
-### D4. Build visionOS
+### D4. visionOS build
 
-Build robisz na Macu z Xcode. `RemoteControlVisionOSPostProcessor` sam dodaje pakiet SPM z WebRTC, linkuje
-`ReplayKit`, `CoreMedia`, `CoreVideo` i wpisuje `NSLocalNetworkUsageDescription` oraz
-`NSScreenCaptureUsageDescription` do Info.plist. W Xcode ustawiasz tylko Team i signing. Szczegóły i wariant
-o backendach przechwytywania: [WEBGL_VISIONOS_REMOTE.md](WEBGL_VISIONOS_REMOTE.md) §4.
+You build on a Mac with Xcode. `RemoteControlVisionOSPostProcessor` adds the WebRTC SPM package by itself,
+links `ReplayKit`, `CoreMedia` and `CoreVideo`, and writes `NSLocalNetworkUsageDescription` and
+`NSScreenCaptureUsageDescription` into the Info.plist. In Xcode you only set Team and signing. Details and the
+capture-backend variants: [WEBGL_VISIONOS_REMOTE.md](WEBGL_VISIONOS_REMOTE.md) §4.
 
-Pierwszy start capture pokazuje systemową zgodę na nagrywanie ekranu — ale **tylko przy backendzie
-ReplayKit**. `UnityCamera` żadnej zgody nie potrzebuje, bo nie przechwytuje ekranu: aplikacja renderuje
-własną kamerę obserwatora. Passthrough nie trafia do strumienia w żadnym wariancie.
+The first capture start shows the system screen-recording consent dialog — but **only with the ReplayKit
+backend**. `UnityCamera` needs no consent, because it does not capture the screen: the app renders its own
+spectator camera. Passthrough never reaches the stream in either variant.
 
-W Edytorze host zarejestruje się w signalingu, ale **nie odpowie na offer**, bo nie ma natywnego WebRTC.
-To normalne, w logu zobaczysz `peer-create-failed`.
+In the Editor the host registers with signaling but **does not answer an offer**, because there is no native
+WebRTC there. That is expected; the log shows `peer-create-failed`.
 
 ---
 
-## E. Kolejność uruchamiania i szybki test
+## E. Startup order and a quick test
 
-1. Serwer: `curl /api/health?token=…` → `"state":"ok"`.
-2. Host na Vision Pro: start aplikacji. W logu `[Signaling] Registered as "…"`.
-   `curl /api/devices?token=…` pokazuje jeden wpis.
-3. Kontroler: otwórz stronę po HTTPS. Twoja lista urządzeń dostaje wpis w ciągu paru sekund.
-4. Connect. Log kontrolera: `[DataChannel] Opened`, potem `Snapshot received`, potem
-   `[capture] value=streaming`. Pojawia się obraz.
-5. Naciśnij swój przycisk. Log hosta: `[DataChannel] Received: [set_compartment] …`, potem
+1. Server: `curl /api/health?token=…` → `"state":"ok"`.
+2. Host on the Vision Pro: start the app. The log shows `[Signaling] Registered as "…"`.
+   `curl /api/devices?token=…` shows one entry.
+3. Controller: open the page over HTTPS. Your device list gets an entry within a few seconds.
+4. Connect. Controller log: `[DataChannel] Opened`, then `Snapshot received`, then
+   `[capture] value=streaming`. The picture appears.
+5. Press your button. Host log: `[DataChannel] Received: [set_compartment] …`, then
    `[OK] Executed 'set_compartment' on '…'`.
-6. Zamknij kartę. Host w ciągu paru sekund przestaje nagrywać.
+6. Close the tab. The host stops recording within a few seconds.
 
-Sesja przeżywa wymuszone zerwanie socketa signalingowego, które na Vercelu zdarza się co najwyżej co 300 s.
-Klienty łączą się ponownie z tymi samymi identyfikatorami, a rejestr i parowanie siedzą w Redisie. W logu
-zobaczysz `[Signaling] reconnect in 1s` i nic więcej się nie dzieje.
+The session survives the forced signaling socket close, which on Vercel happens at most every 300 s. The
+clients reconnect with the same identifiers, and the registry and the pairing live in Redis. The log shows
+`[Signaling] reconnect in 1s` and nothing else happens.
 
 ---
 
-## F. Diagnostyka
+## F. Diagnostics
 
-| Objaw | Sprawdź |
+| Symptom | Check |
 |---|---|
-| Deploy serwera pada na `No entrypoint found in "/vercel/path0"` | `package.json` nie może mieć pola `main`, a `vercel.json` musi mieć `"framework": null`. Vercel bierze wtedy funkcje z `api/`, zamiast szukać aplikacji serwerowej. Jeśli projekt powstał wcześniej z presetem Node, zmień go w panelu: Settings → Build & Deployment → Framework Preset → **Other** |
-| Kontroler: `server-misconfigured:no-redis-url` | Deployment nie ma Redisa. `curl /api/health` powie dokładnie czego brakuje. Zmienne działają od nowego deployu |
-| Kontroler: `unauthorized` albo `Signaling rejected` | `NetworkConfig.Signaling Token` różny od `ROOM_TOKEN` na serwerze |
-| Kontroler: `origin-not-allowed` | Domena strony nie jest w `ALLOWED_ORIGINS` |
-| Urządzenia nie ma na liście | Host pokazuje `[Signaling] Connected`? Ten sam adres i token po obu stronach? Ten sam pokój, jeśli używasz `ROOM_TOKENS`? |
-| Lista mruga albo `Signaling reconnecting...` co 5 minut | Normalne na Vercelu, limit 300 s na socket. Sesja i lista nie są dotknięte. Jeśli są, serwer nie jest w wersji 2.0 |
-| `error: device-busy` | Inny kontroler trzyma parowanie. Zwalnia je jawny `disconnect` albo wygaśnięcie lease'u po 30 s |
-| Host: `Peer disconnect … (controller-gone)` | Lease parowania wygasł, czyli karta zniknęła bez `disconnect`. Host jest znowu wolny |
-| ICE `failed` | Brak trasy między urządzeniami, czyli różne sieci. Potrzebny TURN. Na Vision Pro sprawdź zgodę na sieć lokalną |
-| DataChannel się nie otwiera | Host w Edytorze nie odpowie na offer. Potrzebny build na urządzeniu |
-| Biała strona po wrzuceniu builda | Brakuje nagłówków `Content-Encoding` dla plików `.br`. Skopiuj `vercel.json` z §C6 albo włącz Decompression Fallback |
-| `capture-error` w logu hosta | `-5801` to odmowa zgody, `-5803` nieudany start, spróbuj po wyjściu i wejściu w immersive space |
-| Kontroler w tle reaguje z opóźnieniem | Przeglądarki throttlują ukryte karty. Trzymaj kartę kontrolera widoczną |
+| Server deploy fails with `No entrypoint found in "/vercel/path0"` | `package.json` must not have a `main` field, and `vercel.json` must have `"framework": null`. Vercel then takes the functions from `api/` instead of looking for a server application. If the project was created earlier with a Node preset, change it in the dashboard: Settings → Build & Deployment → Framework Preset → **Other** |
+| Controller: `server-misconfigured:no-redis-url` | The deployment has no Redis. `curl /api/health` says exactly what is missing. Variables take effect from a new deployment |
+| Controller: `unauthorized` or `Signaling rejected` | `NetworkConfig.Signaling Token` differs from `ROOM_TOKEN` on the server |
+| Controller: `origin-not-allowed` | The page's domain is not in `ALLOWED_ORIGINS` |
+| The device is not in the list | Does the host show `[Signaling] Connected`? Same address and token on both sides? Same room, if you use `ROOM_TOKENS`? |
+| The list flickers, or `Signaling reconnecting...` every 5 minutes | Normal on Vercel, the 300 s per-socket limit. The session and the list are unaffected. If they are affected, the server is not on 2.0 |
+| `error: device-busy` | Another controller holds the pairing. It is released by an explicit `disconnect` or by lease expiry after 30 s |
+| Host: `Peer disconnect … (controller-gone)` | The pairing lease expired, i.e. the tab went away without a `disconnect`. The host is free again |
+| ICE `failed` | No route between the devices, i.e. different networks. TURN is needed. On the Vision Pro, check the local-network permission |
+| The DataChannel never opens | A host in the Editor does not answer an offer. An on-device build is needed |
+| White page after uploading the build | The `Content-Encoding` headers for `.br` files are missing. Copy `vercel.json` as in §C6, or enable Decompression Fallback |
+| `capture-error` in the host log | `-5801` is consent declined, `-5803` a failed start — try again after leaving and re-entering the immersive space |
+| The backgrounded controller reacts with a delay | Browsers throttle hidden tabs. Keep the controller tab visible |
 
-Prefiksy logów: `[Discovery]`, `[Signaling]`, `[WebRTC]`, `[Video]`, `[DataChannel]`, `[ScreenCapture]`.
-Wszystkie idą przez `LogChannel`, więc podłącz `DebugLogUI` z `TextMeshProUGUI` i masz je na ekranie
-urządzenia.
+Log prefixes: `[Discovery]`, `[Signaling]`, `[WebRTC]`, `[Video]`, `[DataChannel]`, `[ScreenCapture]`.
+They all go through `LogChannel`, so wire up `DebugLogUI` with a `TextMeshProUGUI` and you have them on the
+device's screen.
 
 ---
 
-## G. Ograniczenia, o których trzeba wiedzieć
+## G. Limitations worth knowing about
 
-- Jeden kontroler na hosta w danej chwili.
-- Bez TURN oba urządzenia muszą mieć trasę między sobą, w praktyce ta sama sieć Wi-Fi. Telefon w LTE
-  i headset w Wi-Fi się nie połączą.
-- Vercel Hobby zamyka każdy socket po 300 s. Jest to obsłużone, ale Vision Pro gubi to, co próbowałby
-  wysłać w swojej ~1-sekundowej przerwie na reconnect. Kandydaci ICE wygenerowani dokładnie wtedy przepadają;
-  negocjacja ma ich wiele i 20 s timeout z ponowieniem, więc w praktyce to nie boli.
-- Zgody Apple na nagrywanie ekranu nie da się pominąć ani zapamiętać za użytkownika.
-- Pierwszy build visionOS wymaga sieci, bo SPM musi ściągnąć pakiet WebRTC.
+- One controller per host at a time.
+- Without TURN both devices need a route to each other, in practice the same Wi-Fi network. A phone on LTE and
+  a headset on Wi-Fi will not connect.
+- Vercel Hobby closes every socket after 300 s. This is handled, but the Vision Pro loses whatever it would
+  have sent during its ~1-second reconnect gap. ICE candidates generated exactly then are lost; negotiation
+  has many of them plus a 20 s timeout with a retry, so in practice it does not hurt.
+- Apple's screen-recording consent cannot be skipped or remembered on the user's behalf.
+- The first visionOS build needs network access, because SPM has to download the WebRTC package.

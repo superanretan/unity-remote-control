@@ -3,38 +3,16 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Data object representing a remote command.
-    /// Serialized to/from JSON for network transport.
-    /// </summary>
     [Serializable]
     public class RemoteCommand
     {
-        /// <summary>
-        /// Handler lookup key — e.g. "set_color", "toggle_object", "custom_action".
-        /// </summary>
         public string commandType;
-
-        /// <summary>
-        /// Runtime target lookup key — matches <see cref="CommandTarget.TargetId"/>.
-        /// </summary>
         public string targetId;
-
-        /// <summary>
-        /// Primary value — interpretation depends on the handler.
-        /// </summary>
         public string value;
-
-        /// <summary>
-        /// Optional extra JSON blob for complex payloads.
-        /// </summary>
         public string payload;
 
-        /// <summary>
-        /// Optional correlation id. When non-empty, a WebRTC host answers with a
-        /// <see cref="HostMessage"/> of type <c>ack</c> carrying the same <c>requestId</c>
-        /// once the command has been dispatched. Empty = fire-and-forget (1.x behaviour).
-        /// </summary>
+        // Non-empty asks a WebRTC host for a HostMessage 'ack' carrying the same id.
+        // Empty = fire-and-forget (1.x behaviour).
         public string requestId = string.Empty;
 
         public RemoteCommand() { }
@@ -47,17 +25,11 @@ namespace SuperAnretan.RemoteControl
             this.payload = payload;
         }
 
-        /// <summary>
-        /// Serialize to JSON string.
-        /// </summary>
         public string ToJson()
         {
             return JsonUtility.ToJson(this);
         }
 
-        /// <summary>
-        /// Deserialize from JSON string. Returns null on failure.
-        /// </summary>
         public static RemoteCommand FromJson(string json)
         {
             try

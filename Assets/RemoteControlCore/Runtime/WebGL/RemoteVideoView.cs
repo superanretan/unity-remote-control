@@ -4,13 +4,9 @@ using UnityEngine.UI;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Shows the incoming WebRTC video on a <see cref="RawImage"/>.
-    /// Pipeline: MediaStream → HTMLVideoElement → gl.texImage2D into the Texture2D created here
-    /// (see <c>WebGLRemote_UpdateTexture</c> in the .jslib) → RawImage.
-    /// The texture is (re)created whenever the incoming resolution changes.
-    /// Set <see cref="_useHtmlOverlay"/> to debug with the raw video element drawn over the canvas.
-    /// </summary>
+    // Shows the incoming WebRTC video on a RawImage.
+    // MediaStream -> HTMLVideoElement -> GL upload into this Texture2D (WebGLRemote_UpdateTexture
+    // in the .jslib) -> RawImage. The texture is recreated when the incoming resolution changes.
     public class RemoteVideoView : MonoBehaviour
     {
         [Header("UI")]
@@ -49,8 +45,8 @@ namespace SuperAnretan.RemoteControl
             WebGLRemoteBridge.OnEvent += OnBridgeEvent;
             if (_onDisconnectedChannel != null) _onDisconnectedChannel.OnRaised += ClearVideo;
 
-            // Under diagnostics the raw <video> is drawn over the canvas too: a picture there with a
-            // magenta quad below it proves WebRTC delivers frames and only the GL upload is broken.
+            // Under diagnostics the raw <video> is drawn over the canvas too: a picture there above
+            // a magenta quad means WebRTC delivers frames and only the GL upload is broken.
             if (WebGLRemoteBridge.IsSupported) WebGLRemoteBridge.SetOverlay(_useHtmlOverlay || _diagnostics);
             if (_target != null) _target.enabled = false;
         }
@@ -84,7 +80,7 @@ namespace SuperAnretan.RemoteControl
                 return;
             }
 
-            // Nothing has ever landed in this texture: say so, and say what the two sides think.
+            // Nothing has ever landed in this texture: report what both sides believe.
             if (_diagnostics && _uploads == 0 && Time.unscaledTime >= _nextDiagAt)
             {
                 _nextDiagAt = Time.unscaledTime + 2f;
@@ -127,10 +123,8 @@ namespace SuperAnretan.RemoteControl
                 filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp
             };
-            // A fresh Texture2D holds uninitialized CPU pixels, which is why a texture nothing ever
-            // uploads into shows up as flat grey. Clear it so an empty texture is unmistakable, and
-            // under _diagnostics make it magenta: seeing magenta proves the RawImage is bound to this
-            // texture, so a missing picture is an upload problem rather than a UI one.
+            // A fresh Texture2D holds uninitialized pixels (flat grey), so clear it. Magenta under
+            // diagnostics proves the RawImage is bound to this texture.
             var fill = _diagnostics ? new Color32(255, 0, 255, 255) : new Color32(0, 0, 0, 255);
             var pixels = new Color32[w * h];
             for (int i = 0; i < pixels.Length; i++) pixels[i] = fill;

@@ -2,25 +2,11 @@ using System;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Simple C# interface over the native visionOS screen capture.
-    /// Frames never reach C#: the native side pushes them straight into the WebRTC video source.
-    ///
-    /// <code>
-    /// VisionScreenCapture.StartCapture();
-    /// VisionScreenCapture.StopCapture();
-    /// </code>
-    ///
-    /// Backend: ReplayKit <c>RPScreenRecorder.startCapture</c> (visionOS 1.0+, deprecated in 27),
-    /// which captures the app's window and therefore only suits a windowed app; the first start
-    /// shows Apple's consent UI and it cannot be bypassed. An immersive app renders through
-    /// Compositor Services, which no system capture API sees — it streams its own spectator camera
-    /// instead (<see cref="VisionCameraStreamer"/>), and then this class only starts and stops the
-    /// hand-off. No passthrough in any case, and no enterprise entitlement.
-    /// </summary>
+    // Starts and stops the native visionOS capture. Frames never reach C#: the native side pushes
+    // them straight into the WebRTC video source.
     public static class VisionScreenCapture
     {
-        /// <summary>"started" | "stopped" | "error:&lt;message&gt;" — raised on the main thread.</summary>
+        // "started" | "stopped" | "error:<message>" — raised on the main thread.
         public static event Action<string> OnStateChanged;
 
         private static bool _hooked;

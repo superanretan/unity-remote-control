@@ -3,12 +3,8 @@ using UnityEngine.UI;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Drop-in controller button: on click raises a <see cref="RemoteCommand"/> on the
-    /// CommandSendChannel. No transport knowledge — works identically for the native
-    /// (Unity Transport) and WebGL (WebRTC DataChannel) controllers.
-    /// Optionally follows the connection state so the button is only clickable while connected.
-    /// </summary>
+    // Drop-in controller button: raises a RemoteCommand on the CommandSendChannel. Transport-agnostic,
+    // so it works with both the native and the WebRTC controller.
     [RequireComponent(typeof(Button))]
     public class CommandButton : MonoBehaviour
     {
@@ -59,7 +55,6 @@ namespace SuperAnretan.RemoteControl
             if (_onDisconnectedChannel != null) _onDisconnectedChannel.OnRaised -= OnDisconnected;
         }
 
-        /// <summary>Raise the configured command (also callable from UnityEvents / code).</summary>
         public void Send()
         {
             if (_commandSendChannel == null)
@@ -77,7 +72,6 @@ namespace SuperAnretan.RemoteControl
             _commandSendChannel.Raise(new RemoteCommand(_commandType, _targetId, _value, _payload ?? string.Empty));
         }
 
-        /// <summary>Change the value at runtime (e.g. from a slider) before the next click.</summary>
         public void SetValue(string value) => _value = value;
 
         private void OnConnected() { _isConnected = true; _button.interactable = true; }

@@ -4,27 +4,13 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Vision Pro host session coordinator — the WebRTC counterpart of <see cref="TransportHost"/>.
-    ///
-    ///   signaling offer ──► native RTCPeerConnection (answer) ──► DataChannel open
-    ///        │                                                        │
-    ///        │                                          start screen capture → video track
-    ///        ▼
-    ///   DataChannel JSON ──► RemoteCommand.FromJson ──► CommandReceivedChannel.Raise ──► CommandProcessor
-    ///
-    ///   HostMessageSendChannel (app raises HostMessage JSON) ──► TrySend ──► DataChannel ──► controller
-    ///
-    /// Handlers, targets and registries are untouched: they only see the CommandReceivedChannel.
-    /// After any disconnect the capture stops, the peer is closed and the host stays discoverable.
-    ///
-    /// Return channel (host → controller): the app never talks to the native bridge. It raises a
-    /// <see cref="HostMessage"/> JSON on <c>HostMessageSendChannel</c> (or calls <see cref="TrySend(HostMessage)"/>).
-    /// <c>state</c> messages are cached per topic and re-sent as one <c>snapshot</c> right after the DataChannel
-    /// opens, so the controller always starts from the full current state. Capture state is reported separately
-    /// (<c>capture</c>: starting / streaming / stopped / error) — "DataChannel open" is not "video is flowing".
-    /// Commands carrying a <c>requestId</c> are answered with an <c>ack</c>.
-    /// </summary>
+    // Vision Pro host session coordinator — the WebRTC counterpart of TransportHost.
+    //   signaling offer -> native peer answers -> DataChannel opens -> screen capture starts
+    //   DataChannel JSON -> RemoteCommand.FromJson -> CommandReceivedChannel -> CommandProcessor
+    //   HostMessageSendChannel -> TrySend -> DataChannel -> controller
+    // 'state' messages are cached per topic and replayed as one 'snapshot' when the DataChannel
+    // opens. Capture state is reported separately, since "DataChannel open" is not "video flowing".
+    // App code must go through TrySend and never touch VisionProNativeBridge directly.
     public class VisionProWebRtcHost : MonoBehaviour
     {
         [Header("Config")]
@@ -85,7 +71,6 @@ namespace SuperAnretan.RemoteControl
         public bool HasSession => _controllerId != null;
         public bool IsConnected => _connected;
 
-        /// <summary>Latest known capture pipeline state: starting | streaming | stopped | error.</summary>
         public string CaptureState => _captureState;
 
         private void OnEnable()
@@ -138,11 +123,8 @@ namespace SuperAnretan.RemoteControl
 
         // ───────── Public API: host → controller ─────────
 
-        /// <summary>
-        /// Sends one <see cref="HostMessage"/> to the connected controller. Returns false when no DataChannel is open
-        /// (the message is dropped, except that <c>state</c> topics are always cached for the next snapshot).
-        /// This is the only supported way to send — application code must not call <see cref="VisionProNativeBridge"/>.
-        /// </summary>
+        // Returns false when no DataChannel is open (the message is dropped, but 'state' topics are
+        // still cached for the next snapshot).
         public bool TrySend(HostMessage message)
         {
             if (message == null || string.IsNullOrEmpty(message.messageType)) return false;
@@ -150,7 +132,6 @@ namespace SuperAnretan.RemoteControl
             return TrySendRaw(message.ToJson());
         }
 
-        /// <summary>Sends a pre-serialized <see cref="HostMessage"/> JSON string. Same connection check as <see cref="TrySend(HostMessage)"/>.</summary>
         public bool TrySend(string json)
         {
             if (string.IsNullOrEmpty(json)) return false;
@@ -164,10 +145,8 @@ namespace SuperAnretan.RemoteControl
             return TrySendRaw(json);
         }
 
-        /// <summary>Convenience: cache + send a <c>state</c> topic.</summary>
         public bool SetState(string topic, string value, string payload = "") => TrySend(HostMessage.State(topic, value, payload));
 
-        /// <summary>Forget a cached topic so it is no longer part of future snapshots.</summary>
         public void ClearState(string topic)
         {
             if (_stateCache.Remove(topic)) _stateOrder.Remove(topic);
@@ -332,13 +311,9 @@ namespace SuperAnretan.RemoteControl
             }
         }
 
-        /// <summary>
-        /// Auto means "stream what this app can actually show". A ReplayKit capture of a fully
-        /// immersive app returns its empty window — a black stream — so the presence of a
-        /// <see cref="VisionCameraStreamer"/> decides: with one in the scene the app streams its own
-        /// rendering, without one the system capture is the only thing left to try. An explicitly
-        /// chosen backend is never overridden.
-        /// </summary>
+        // Auto means "stream what this app can actually show": a VisionCameraStreamer in the scene
+        // decides, because ReplayKit would capture an immersive app's empty window. An explicitly
+        // chosen backend is never overridden.
         private VisionProNativeBridge.CaptureBackend ResolveCaptureBackend()
         {
             bool hasStreamer = FindAnyObjectByType<VisionCameraStreamer>() != null;
@@ -401,8 +376,8 @@ namespace SuperAnretan.RemoteControl
             Log($"[DataChannel] Received: {command}");
             _commandReceivedChannel?.Raise(command);
 
-            // "dispatched" = parsed and raised on CommandReceivedChannel. Whether a handler existed/succeeded is
-            // CommandProcessor's business; apps report handler outcomes through 'state' topics.
+            // "dispatched" only means parsed and raised. Handler outcomes are CommandProcessor's
+            // business; apps report them through 'state' topics.
             if (_ackCommands && !string.IsNullOrEmpty(command.requestId))
                 TrySendRaw(HostMessage.Ack(command, HostMessage.AckDispatched).ToJson());
         }

@@ -2,16 +2,8 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Static utility for network-related helpers.
-    /// </summary>
     public static class NetworkUtility
     {
-        /// <summary>
-        /// Returns the first IPv4 address of this machine on the local network.
-        /// Falls back to "127.0.0.1" if no network interface is found.
-        /// On WebGL there is no socket API — always returns the loopback address.
-        /// </summary>
         public static string GetLocalIPAddress()
         {
 #if UNITY_WEBGL && !UNITY_EDITOR

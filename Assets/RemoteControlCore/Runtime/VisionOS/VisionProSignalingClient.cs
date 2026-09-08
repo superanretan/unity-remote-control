@@ -9,20 +9,14 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Host-side signaling client (Vision Pro → signaling server) built on <see cref="ClientWebSocket"/>.
-    ///   • registers the device ("Vision Pro Office") and heart-beats so controllers can list it
-    ///   • relays SDP offer / answer / ICE with the controller
-    ///   • reconnects with exponential back-off when Wi-Fi drops; re-registers with the same deviceId
-    /// All events are raised on the Unity main thread (Update pumps an inbox).
-    /// Pure C# so it also runs in the Editor for testing discovery without a device.
-    ///
-    /// The signaling server (Vercel) force-closes every socket after ≤300 s; the reconnect loop below
-    /// handles that transparently — the server keeps registry and pairing across the gap, so an
-    /// established WebRTC session is never affected.
-    /// </summary>
+    // Host-side signaling client (Vision Pro -> server) on ClientWebSocket: registers the device and
+    // heart-beats, relays SDP offer/answer and ICE, and reconnects with exponential back-off.
+    // Vercel force-closes every socket after <=300 s; the server keeps registry and pairing across
+    // the gap, so an established WebRTC session is unaffected. All events are raised on the main
+    // thread (Update pumps an inbox). Pure C#, so it also runs in the Editor.
     public class VisionProSignalingClient : MonoBehaviour
     {
+        // Stable per-install id so the host keeps its identity across restarts.
         private const string DeviceIdPrefKey = "RemoteControl.DeviceId";
 
         [Header("Config")]
@@ -35,7 +29,6 @@ namespace SuperAnretan.RemoteControl
         [Header("Logging")]
         [SerializeField] private StringEventChannel _logChannel;
 
-        /// <summary>Stable per-install id (PlayerPrefs) so the host keeps its identity across restarts.</summary>
         public string DeviceId { get; private set; }
         public string DeviceName => string.IsNullOrWhiteSpace(_deviceNameOverride) ? _networkConfig?.DeviceName : _deviceNameOverride;
         public bool IsConnected { get; private set; }
@@ -45,7 +38,7 @@ namespace SuperAnretan.RemoteControl
         public event Action OnDisconnected;
         public event Action<SignalingMessage> OnOffer;
         public event Action<SignalingMessage> OnIceCandidate;
-        /// <summary>"disconnect" from the paired controller or from the server on its behalf.</summary>
+        // "disconnect" from the paired controller, or from the server on its behalf.
         public event Action<SignalingMessage> OnPeerDisconnect;
 
         private readonly ConcurrentQueue<SignalingMessage> _inbox = new();
@@ -109,7 +102,6 @@ namespace SuperAnretan.RemoteControl
             }
         }
 
-        /// <summary>"available" | "busy" — pushed to the server and remembered for re-registration.</summary>
         public void SetStatus(string status)
         {
             Status = status;
@@ -140,7 +132,7 @@ namespace SuperAnretan.RemoteControl
 
         private async Task RunAsync(CancellationToken ct, int generation)
         {
-            // Configured URL + ?token=… (NetworkConfig.SignalingToken). The token is a shared secret → keep it out of logs.
+            // The token is a shared secret, so log the URL without it.
             var uri = new Uri(_networkConfig.SignalingConnectUrl);
             string displayUrl = _networkConfig.SignalingServerUrl;
             float heartbeat = Mathf.Max(0.5f, _networkConfig.HeartbeatInterval);
@@ -207,7 +199,7 @@ namespace SuperAnretan.RemoteControl
                     result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
-                        // Server-initiated close: surface the reason (e.g. "replaced", "unauthorized") instead of staying silent.
+                        // Server-initiated close: surface the reason ("replaced", "unauthorized", ...).
                         string why = string.IsNullOrEmpty(ws.CloseStatusDescription) ? ws.CloseStatus?.ToString() : ws.CloseStatusDescription;
                         if (!string.IsNullOrEmpty(why)) Enqueue("__log", $"[Signaling] Server closed the socket: {why}", generation);
                         return;

@@ -4,10 +4,6 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// On-screen debug log that listens to a <see cref="StringEventChannel"/>
-    /// and displays messages in a TextMeshProUGUI component.
-    /// </summary>
     public class DebugLogUI : MonoBehaviour
     {
         [Header("Event Channel")]
@@ -58,9 +54,6 @@ namespace SuperAnretan.RemoteControl
             Debug.Log(timestamped);
         }
 
-        /// <summary>
-        /// Clear all displayed log lines.
-        /// </summary>
         public void ClearLog()
         {
             _lines.Clear();

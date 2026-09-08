@@ -2,11 +2,7 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl.Samples
 {
-    /// <summary>
-    /// Handler for "set_color" commands.
-    /// Expects <see cref="RemoteCommand.value"/> to be a hex color string (e.g. "#FF0000").
-    /// Changes the target Renderer's material color.
-    /// </summary>
+    // Expects command.value to be a hex color, e.g. "#FF0000".
     public class SetColorHandler : CommandHandlerBase
     {
         public override string CommandType => "set_color";

@@ -3,11 +3,7 @@ using SuperAnretan.RemoteControl;
 
 namespace SuperAnretan.RemoteControl.Samples
 {
-    /// <summary>
-    /// Handler dla komendy "set_color".
-    /// Oczekuje w polu value hex koloru np. "#FF0000".
-    /// Zmienia kolor materiału na docelowym Rendererze.
-    /// </summary>
+    // Expects command.value to be a hex color, e.g. "#FF0000".
     public class SetColorHandler : CommandHandlerBase
     {
         public override string CommandType => "set_color";
@@ -17,7 +13,7 @@ namespace SuperAnretan.RemoteControl.Samples
             var renderer = target.GetComponent<Renderer>();
             if (renderer == null)
             {
-                Debug.LogWarning($"[SetColorHandler] Brak Renderer na targecie '{command.targetId}'.", target);
+                Debug.LogWarning($"[SetColorHandler] No Renderer on target '{command.targetId}'.", target);
                 return;
             }
 
@@ -27,7 +23,7 @@ namespace SuperAnretan.RemoteControl.Samples
             }
             else
             {
-                Debug.LogWarning($"[SetColorHandler] Nieprawidłowy kolor: '{command.value}'.");
+                Debug.LogWarning($"[SetColorHandler] Invalid color: '{command.value}'.");
             }
         }
     }

@@ -6,11 +6,8 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Unity Transport client.
-    /// Connects to a host, listens for send-command requests via event channel,
-    /// and transmits serialized commands over the network.
-    /// </summary>
+    // Unity Transport client: connects to a host by IP and sends commands raised on the
+    // CommandSendChannel. Wire protocol: [int32 length][UTF8 RemoteCommand JSON].
     public class TransportClient : MonoBehaviour
     {
         [Header("Config")]
@@ -86,9 +83,6 @@ namespace SuperAnretan.RemoteControl
 
         // ───────── Public API ─────────
 
-        /// <summary>
-        /// Connect to the host at the given IP address using the configured port.
-        /// </summary>
         public void Connect(string hostIp)
         {
             if (_isConnected || _isConnecting)
@@ -112,9 +106,6 @@ namespace SuperAnretan.RemoteControl
             Log($"[Client] Connecting to {hostIp}:{_networkConfig.Port}...");
         }
 
-        /// <summary>
-        /// Disconnect from the host.
-        /// </summary>
         public void Disconnect()
         {
             if (!_isConnected && !_isConnecting) return;
@@ -129,9 +120,6 @@ namespace SuperAnretan.RemoteControl
             _onDisconnectedChannel?.Raise();
         }
 
-        /// <summary>
-        /// Send a command to the host. Ignored if not connected.
-        /// </summary>
         public void SendCommand(RemoteCommand command)
         {
             if (!_isConnected)

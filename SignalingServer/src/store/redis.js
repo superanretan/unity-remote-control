@@ -113,11 +113,9 @@ export class RedisStore {
   async ready() { await this._ready; }
   async ping() { return (await this.cmd.ping()) === "PONG"; }
 
-  /**
-   * Boot check, reported by GET /api/health: can we talk to Redis, does the pub/sub doorbell actually
-   * ring, and does every Lua script load and run? The Lua dry-run is the only cheap way to catch a typo
-   * in a script before it breaks a live session — it runs on a throwaway key prefix that is deleted again.
-   */
+  // Boot check reported by GET /api/health: is Redis reachable, does the pub/sub doorbell ring, and
+  // does every Lua script load and run? The Lua dry-run catches a typo before it breaks a live
+  // session; it uses a throwaway key prefix that is deleted again.
   async selfTest() {
     const out = { kind: this.kind, ping: null, pubsub: "down", lua: "ok", error: null };
 
@@ -166,13 +164,11 @@ export class RedisStore {
     return (this._lastSelfTest = out);
   }
 
-  /** Last {@link selfTest} result, or null when it has not run yet. */
+  // Last selfTest result, or null when it has not run yet.
   lastSelfTest() { return this._lastSelfTest ?? null; }
 
-  /**
-   * Keeps the subscriber connection from being reaped as idle (Upstash closes idle connections; the
-   * subscriber has no outbound traffic of its own). PING is one of the few commands allowed while subscribed.
-   */
+  // Keeps the subscriber connection from being reaped as idle: it has no outbound traffic of its
+  // own, and PING is one of the few commands allowed while subscribed.
   async keepalive() {
     try { await this.sub.ping(); } catch { /* ioredis reconnects and re-subscribes on its own */ }
   }
@@ -259,7 +255,7 @@ export class RedisStore {
     return Number(await this.cmd.mailboxPush(this._k(room, `mbox:${id}`), this._k(room, `seq:${id}`), json, ttlSec, max));
   }
 
-  /** Atomic LPOP <count> (Redis ≥ 6.2). Returns [] when empty. */
+  // Atomic LPOP <count> (Redis 6.2+). Returns [] when empty.
   async mailboxDrain(room, id, count) {
     const items = await this.cmd.lpop(this._k(room, `mbox:${id}`), count);
     return items || [];

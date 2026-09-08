@@ -3,16 +3,9 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Discovery backend for the WebGL controller. Instead of UDP broadcast (impossible in a
-    /// browser) it keeps a WebSocket to the signaling server and mirrors the server's
-    /// "device-list" pushes into <see cref="RemoteDiscoveryBase.Devices"/>.
-    /// Hosts that stop heart-beating are pruned server-side and disappear from the list.
-    ///
-    /// The signaling socket is force-closed by Vercel every ≤300 s; the .jslib reconnects with the same
-    /// clientId and the server keeps the registry, so the list — and any WebRTC session — is unaffected.
-    /// Identical consecutive lists are ignored so the dropdown never rebuilds (or closes) for nothing.
-    /// </summary>
+    // Discovery for the WebGL controller. UDP broadcast is impossible in a browser, so this mirrors
+    // the signaling server's "device-list" pushes. Identical consecutive lists are ignored so the
+    // dropdown never rebuilds for nothing.
     public class WebGLDiscoveryClient : RemoteDiscoveryBase
     {
         [Header("Config")]
@@ -91,8 +84,8 @@ namespace SuperAnretan.RemoteControl
 
                 case "signaling-closed":
                     _signalingOpen = false;
-                    // Keep the last known list: the socket drop is routine (Vercel max duration) and the
-                    // server still has the registry. A really vanished host disappears on the next list.
+                    // Keep the last known list: the drop is routine (Vercel max duration) and the
+                    // server still has the registry. A gone host disappears on the next list.
                     SetStatus(_devices.Count > 0 ? "Signaling reconnecting..." : "Signaling offline — reconnecting...");
                     Log($"[Signaling] Disconnected ({payload}).");
                     break;

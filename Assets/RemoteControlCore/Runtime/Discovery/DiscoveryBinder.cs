@@ -2,12 +2,6 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Lets the <see cref="NetworkDiscoveryPanel"/> prefab stay backend-agnostic: at startup it
-    /// looks up whichever <see cref="RemoteDiscoveryBase"/> lives in the scene
-    /// (WebGLDiscoveryClient on WebGL, a UDP implementation on native) and hands it to the panel.
-    /// If the panel already has an explicit reference nothing happens.
-    /// </summary>
     [RequireComponent(typeof(NetworkDiscoveryPanel))]
     public class DiscoveryBinder : MonoBehaviour
     {

@@ -9,16 +9,12 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl.Editor
 {
-    /// <summary>
-    /// Wires the generated Xcode project for the Vision Pro host:
-    ///   • adds the LiveKitWebRTC Swift package (WebRTC.xcframework with visionOS slices) to UnityFramework
-    ///   • links ReplayKit
-    ///   • adds the Info.plist usage descriptions the OS asks for
-    /// Idempotent — safe to run on "Append" builds.
-    /// </summary>
+    // Wires the generated Xcode project for the Vision Pro host: adds the LiveKitWebRTC Swift
+    // package (WebRTC.xcframework with visionOS slices), links ReplayKit and writes the Info.plist
+    // usage descriptions. Idempotent, so it is safe on "Append" builds.
     public static class RemoteControlVisionOSPostProcessor
     {
-        /// <summary>Pinned LiveKit WebRTC build (visionOS 2.2+ device + simulator slices).</summary>
+        // Pinned LiveKit WebRTC build (visionOS 2.2+ device + simulator slices).
         public const string WebRtcPackageUrl = "https://github.com/livekit/webrtc-xcframework";
         public const string WebRtcPackageVersion = "150.7871.01";
         public const string WebRtcProductName = "LiveKitWebRTC";
@@ -82,10 +78,8 @@ namespace SuperAnretan.RemoteControl.Editor
                       $"{WebRtcPackageVersion}, ReplayKit (main target {mainTarget}).");
         }
 
-        /// <summary>
-        /// PBXProject.GetPBXProjectPath() hardcodes the iOS project name (Unity-iPhone.xcodeproj);
-        /// a visionOS build emits Unity-VisionOS.xcodeproj, so resolve the real one.
-        /// </summary>
+        // PBXProject.GetPBXProjectPath() hardcodes Unity-iPhone.xcodeproj; a visionOS build emits
+        // Unity-VisionOS.xcodeproj, so find the real one.
         private static string ResolvePbxProjectPath(string buildPath)
         {
             foreach (string projectName in new[] { "Unity-VisionOS.xcodeproj", "Unity-iPhone.xcodeproj" })
@@ -103,7 +97,7 @@ namespace SuperAnretan.RemoteControl.Editor
             return null;
         }
 
-        /// <summary>GetUnityMainTargetGuid() also assumes "Unity-iPhone"; the visionOS app target is named differently.</summary>
+        // GetUnityMainTargetGuid() also assumes "Unity-iPhone".
         private static string ResolveMainTargetGuid(PBXProject project)
         {
             foreach (string targetName in new[] { "Unity-VisionOS", "Unity-iPhone" })

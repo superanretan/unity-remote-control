@@ -5,10 +5,6 @@ using SuperAnretan.RemoteControl;
 
 namespace SuperAnretan.RemoteControl.Samples
 {
-    /// <summary>
-    /// UI kontrolera. Łączy przyciski i input field z kanałami SO.
-    /// Zero bezpośrednich referencji do TransportClient.
-    /// </summary>
     public class DemoControllerUI : MonoBehaviour
     {
         [Header("Event Channels")]
@@ -63,7 +59,7 @@ namespace SuperAnretan.RemoteControl.Samples
             string ip = _ipInputField != null ? _ipInputField.text.Trim() : "";
             if (string.IsNullOrEmpty(ip))
             {
-                _logChannel?.Raise("[UI] Wpisz IP hosta.");
+                _logChannel?.Raise("[UI] Enter the host IP.");
                 return;
             }
             _connectRequestChannel?.Raise(ip);
@@ -78,7 +74,7 @@ namespace SuperAnretan.RemoteControl.Samples
         {
             if (!_isConnected)
             {
-                _logChannel?.Raise("[UI] Nie połączono.");
+                _logChannel?.Raise("[UI] Not connected.");
                 return;
             }
             var cmd = new RemoteCommand("set_color", _targetId, hexColor);

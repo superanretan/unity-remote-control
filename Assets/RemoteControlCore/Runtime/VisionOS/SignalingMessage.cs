@@ -3,11 +3,6 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Flat JSON envelope used between the Vision Pro host and the signaling server.
-    /// One class for every message type keeps JsonUtility happy (no polymorphism).
-    /// Unused fields stay empty and are ignored by the server.
-    /// </summary>
     [Serializable]
     public class SignalingMessage
     {
@@ -21,7 +16,6 @@ namespace SuperAnretan.RemoteControl
         public string deviceName;
         public string platform;
         public string status;
-        /// <summary>Seconds without heartbeat after which the server may drop this host (NetworkConfig.DeviceTimeout). 0 = server default.</summary>
         public float deviceTimeout;
 
         // offer / answer
@@ -37,7 +31,6 @@ namespace SuperAnretan.RemoteControl
         public string message;
         public string clientId;
 
-        /// <summary>Local bookkeeping only (not serialized): which socket generation produced this message.</summary>
         [NonSerialized] public int generation;
 
         public string ToJson() => JsonUtility.ToJson(this);
@@ -49,7 +42,6 @@ namespace SuperAnretan.RemoteControl
         }
     }
 
-    /// <summary>Payload the native bridge emits for a local ICE candidate.</summary>
     [Serializable]
     public class IceCandidatePayload
     {

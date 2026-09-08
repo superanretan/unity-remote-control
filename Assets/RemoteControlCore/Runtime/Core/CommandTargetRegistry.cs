@@ -3,11 +3,6 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Runtime registry of all active <see cref="CommandTarget"/> instances.
-    /// Targets register on enable and unregister on disable.
-    /// This is a ScriptableObject — create one asset and share it across components.
-    /// </summary>
     [CreateAssetMenu(
         fileName = "TargetRegistry",
         menuName = "Remote Control/Registries/Target Registry")]
@@ -15,9 +10,6 @@ namespace SuperAnretan.RemoteControl
     {
         private readonly Dictionary<string, CommandTarget> _targets = new();
 
-        /// <summary>
-        /// Register a target. Warns on duplicate targetId.
-        /// </summary>
         public void Register(CommandTarget target)
         {
             if (target == null || string.IsNullOrEmpty(target.TargetId))
@@ -36,9 +28,6 @@ namespace SuperAnretan.RemoteControl
             _targets[target.TargetId] = target;
         }
 
-        /// <summary>
-        /// Unregister a target.
-        /// </summary>
         public void Unregister(CommandTarget target)
         {
             if (target == null || string.IsNullOrEmpty(target.TargetId)) return;
@@ -49,23 +38,13 @@ namespace SuperAnretan.RemoteControl
             }
         }
 
-        /// <summary>
-        /// Try to find a target by its string id.
-        /// </summary>
         public bool TryGetTarget(string targetId, out CommandTarget target)
         {
             return _targets.TryGetValue(targetId, out target) && target != null;
         }
 
-        /// <summary>
-        /// Current number of registered targets.
-        /// </summary>
         public int Count => _targets.Count;
 
-        /// <summary>
-        /// Clear all registrations. Called automatically on domain reload,
-        /// but can be called manually for cleanup.
-        /// </summary>
         public void Clear()
         {
             _targets.Clear();

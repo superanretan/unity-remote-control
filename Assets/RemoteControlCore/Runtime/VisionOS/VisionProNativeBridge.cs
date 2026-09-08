@@ -6,21 +6,11 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// P/Invoke façade over the visionOS native plugin (<c>Plugins/visionOS/*.mm</c>):
-    /// native WebRTC peer (LiveKitWebRTC / WebRTC.xcframework) + frame capture (ReplayKit for a
-    /// windowed app, or the app's own spectator camera for an immersive one).
-    ///
-    /// Native events arrive on WebRTC / capture threads. They are copied into a thread-safe queue
-    /// and re-raised on the Unity main thread from <see cref="PumpEvents"/>.
-    ///
-    /// Event types: answer(sdp), ice-candidate(json), connection-state(state),
-    /// datachannel-open, datachannel-closed, datachannel-message(text),
-    /// capture-started, capture-stopped, capture-error(msg), log(msg), error(msg)
-    ///
-    /// Outside a visionOS device build every call is a no-op that reports "unavailable",
-    /// so the host scene can run in the Editor (signaling + discovery still work).
-    /// </summary>
+    // P/Invoke façade over the visionOS native plugin (Plugins/visionOS/*.mm).
+    // Native events arrive on WebRTC / capture threads, are queued and re-raised on the Unity main
+    // thread from PumpEvents: answer(sdp), ice-candidate(json), connection-state(state),
+    // datachannel-open/-closed/-message(text), capture-started/-stopped/-error(msg), log(msg), error(msg).
+    // Outside a visionOS device build every call is a no-op reporting "unavailable".
     public static class VisionProNativeBridge
     {
         public static event Action<string, string> OnEvent;
@@ -34,7 +24,6 @@ namespace SuperAnretan.RemoteControl
         private static EventCallback _callback;
 
 #if UNITY_VISIONOS && !UNITY_EDITOR
-        /// <summary>True only inside a visionOS device build.</summary>
         public static bool IsSupported => true;
 
         [DllImport("__Internal")] private static extern void VPR_Initialize(EventCallback cb);
@@ -51,7 +40,6 @@ namespace SuperAnretan.RemoteControl
         [DllImport("__Internal")] private static extern int  VPR_IsCapturing();
         [DllImport("__Internal")] private static extern void VPR_PushFrameBGRA(IntPtr data, int width, int height, int stride, int flipVertically, long timestampNs);
 #else
-        /// <summary>True only inside a visionOS device build.</summary>
         public static bool IsSupported => false;
 
         private static void VPR_Initialize(EventCallback cb) { }
@@ -71,17 +59,10 @@ namespace SuperAnretan.RemoteControl
         private static void Emit(string type, string payload) => _queue.Enqueue((type, payload));
 #endif
 
-        /// <summary>Where the streamed frames come from. See <see cref="CaptureBackend"/>.</summary>
-        /// <summary>
-        /// Where the streamed frames come from.
-        /// <para><b>UnityCamera</b> is the only backend that works for a fully immersive app: Unity
-        /// renders through Compositor Services, which the system capture APIs cannot see, so
-        /// ReplayKit captures the app's empty window and the stream comes out uniformly dark. It
-        /// needs a <see cref="VisionCameraStreamer"/> in the scene and shows no consent alert;
-        /// <b>Auto</b> picks it automatically when that component is present.</para>
-        /// <para>2 was ScreenCaptureKit and is gone — it required the Xcode 27 SDK, was never
-        /// compiled into a build, and had nothing to offer an immersive app.</para>
-        /// </summary>
+        // UnityCamera is the only backend that works for a fully immersive app: Unity renders
+        // through Compositor Services, which system capture APIs cannot see, so ReplayKit captures
+        // the app's empty window. It needs a VisionCameraStreamer in the scene; Auto picks it when
+        // one is present. 2 was ScreenCaptureKit and is gone.
         public enum CaptureBackend { Auto = 0, ReplayKit = 1, UnityCamera = 3 }
 
         public static void Initialize()
@@ -101,7 +82,6 @@ namespace SuperAnretan.RemoteControl
             _queue.Enqueue((t, p));
         }
 
-        /// <summary>Drain native events on the main thread. Call from Update.</summary>
         public static void PumpEvents()
         {
             while (_queue.TryDequeue(out var e))
@@ -111,10 +91,8 @@ namespace SuperAnretan.RemoteControl
             }
         }
 
-        /// <summary>
-        /// Drops queued peer-related events (answer, ice-candidate, connection/datachannel state) that
-        /// belong to a peer that has just been closed, keeping capture/log events. Main thread only.
-        /// </summary>
+        // Drops queued peer events belonging to a peer that has just been closed, keeping
+        // capture/log events. Main thread only.
         public static void DiscardQueuedPeerEvents()
         {
             var keep = new System.Collections.Generic.List<(string type, string payload)>();
@@ -151,13 +129,9 @@ namespace SuperAnretan.RemoteControl
         public static void StopCapture() => VPR_StopCapture();
         public static bool IsCapturing => VPR_IsCapturing() != 0;
 
-        /// <summary>
-        /// Hands one BGRA32 frame to the native video source. <paramref name="data"/> is read
-        /// synchronously and never retained, so the buffer may be reused straight after.
-        /// <paramref name="flipVertically"/> reverses the row order during the copy that happens
-        /// anyway — far cheaper than blitting the render texture. Used by
-        /// <see cref="VisionCameraStreamer"/> for the UnityCamera backend.
-        /// </summary>
+        // One BGRA32 frame. `data` is read synchronously and never retained, so the buffer may be
+        // reused right after. flipVertically reverses the row order inside the copy the native side
+        // makes anyway — cheaper than blitting the render texture.
         public static void PushFrameBGRA(IntPtr data, int width, int height, int stride,
                                          bool flipVertically, long timestampNs) =>
             VPR_PushFrameBGRA(data, width, height, stride, flipVertically ? 1 : 0, timestampNs);

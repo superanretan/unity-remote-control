@@ -1,24 +1,15 @@
-// ScreenCaptureBridge.mm
-// Captures what the Unity app renders on visionOS and hands every CMSampleBuffer to the
-// native WebRTC video source (VPR_PushSampleBuffer). Frames never touch C#.
+// Captures what the Unity app renders on visionOS and hands every CMSampleBuffer to the native
+// WebRTC video source (VPR_PushSampleBuffer). Frames never touch C#.
 //
 // Backends (public APIs only, no passthrough, no enterprise entitlement):
-//   • ReplayKit  RPScreenRecorder.startCapture  — visionOS 1.0+, deprecated in visionOS 27.
-//                System consent alert on first start. Captures the app's *window*, so it only
-//                suits a windowed app.
-//   • UnityCamera — not a system capture at all: the app renders a spectator camera and pushes the
-//                pixels through VPR_PushFrameBGRA. Measured: a fully immersive Unity app renders
-//                through Compositor Services, ReplayKit captures its (empty) window instead, and
-//                the browser receives a steady stream of uniformly dark frames. This backend is the
-//                only one that streams what an immersive app actually draws.
+//   ReplayKit    RPScreenRecorder.startCapture, visionOS 1.0+ and deprecated in 27. Captures the
+//                app's *window*, so it only suits a windowed app.
+//   UnityCamera  Not a system capture: the app renders a spectator camera and pushes the pixels
+//                through VPR_PushFrameBGRA. The only backend that streams what an immersive app
+//                actually draws, since its Compositor Services output is invisible to ReplayKit.
 //
-// A ScreenCaptureKit backend used to live here. It was removed: it required the Xcode 27 SDK, was
-// never compiled into a shipped build, and its source selection (screens / applications / windows)
-// has nothing to offer an immersive app either.
-//
-// Apple never lets a remote controller silently start recording: the host user must accept the
-// system consent UI the first time. Capture therefore starts only after the DataChannel is open
-// and the host app is in the foreground.
+// Capture starts only after the DataChannel is open and the app is in the foreground: Apple
+// requires the host user to accept the system consent alert on first use.
 
 #import "VisionProRemoteBridge.h"
 #import <ReplayKit/ReplayKit.h>
@@ -26,9 +17,7 @@
 typedef NS_ENUM(int, VPRCaptureBackend) {
     VPRCaptureBackendAuto = 0,
     VPRCaptureBackendReplayKit = 1,
-    // 2 was ScreenCaptureKit, removed: it needs the Xcode 27 SDK, was never compiled into a build,
-    // and selects screens/apps/windows — none of which an immersive Compositor Services app has.
-    // A scene that still has 2 serialized falls through to ReplayKit, exactly as it did before.
+    // 2 was ScreenCaptureKit, removed. A scene that still has 2 serialized falls through to ReplayKit.
     VPRCaptureBackendUnityCamera = 3,
 };
 
@@ -36,14 +25,14 @@ static VPRCaptureBackend g_backend = VPRCaptureBackendAuto;
 static BOOL g_capturing = NO;
 static BOOL g_starting = NO;
 static int g_activeBackend = 0;   // backend that actually started
-// Bumped by every StopCapture. A start that completes with a stale generation was cancelled
-// while pending (e.g. the peer disconnected during the consent alert) → stop it right away.
+// Bumped by every StopCapture: a start completing with a stale generation was cancelled while
+// pending (e.g. the peer left during the consent alert), so stop it right away.
 static uint32_t g_startGeneration = 0;
 
 static void VPR_CaptureLog(NSString *message) { VPR_Emit(@"log", message); }
 
-// Describes the first captured frame once: pixel format, size, and the mean of a 16x16 luma grid.
-// A mean of ~0 proves the capture source itself is dark, which no amount of work downstream fixes.
+// Logs the first captured frame once: format, size, and the mean of a 16x16 luma grid. A mean near
+// 0 proves the capture source itself is dark.
 static BOOL g_describedFrame = NO;
 
 static void VPR_DescribeFirstFrame(CMSampleBufferRef sampleBuffer)

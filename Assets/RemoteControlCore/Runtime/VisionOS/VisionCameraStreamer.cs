@@ -6,40 +6,18 @@ using UnityEngine.Rendering;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Streams what the app renders, for hosts no system capture API can see.
-    ///
-    /// <para>A fully immersive Unity app on visionOS renders through Compositor Services, and no
-    /// system capture API sees that composition — ReplayKit captures the app's window, which such an
-    /// app never draws into, so the browser receives a steady stream of uniformly dark frames. This
-    /// component sidesteps the system capture entirely: it renders a spectator camera into a
-    /// <see cref="RenderTexture"/>, reads it back asynchronously and hands the pixels to the native
-    /// WebRTC video source (<c>VPR_PushFrameBGRA</c>).</para>
-    ///
-    /// <para>Put it anywhere in the host scene. <c>VisionProWebRtcHost → Capture Backend</c> on
-    /// <c>Auto</c> picks this path automatically once the component is present.</para>
-    ///
-    /// <para><b>What it costs, and what keeps it cheap.</b> The Vision Pro must not slow down for the
-    /// sake of a preview, so nothing here runs at display rate:</para>
-    /// <list type="bullet">
-    /// <item>The camera is disabled and rendered <i>on demand</i>, only on the frames that are
-    /// actually streamed — at 15 fps that is a quarter of the work a 60 fps camera would do.</item>
-    /// <item>It renders at the stream resolution, so the encoder never rescales. 960x540 is a
-    /// quarter of the pixels of 1080p and less than half of 720p.</item>
-    /// <item>No HDR, no MSAA, no post-processing, no depth texture, and shadows off by default.</item>
-    /// <item>One readback in flight at a time; a frame is dropped rather than queued.</item>
-    /// <item>Vertical flip, when needed, reverses the row order in the copy the native side makes
-    /// anyway, instead of costing a full-screen blit.</item>
-    /// </list>
-    ///
-    /// <para>Resolution, frame rate and bitrate all come from <see cref="NetworkConfig"/>; the
-    /// defaults there (960x540, 15 fps, 1200 kbit/s) are chosen for the headset's sake, and this
-    /// component says so in the log if they are raised past what a preview needs.</para>
-    /// </summary>
+    // Streams what the app renders, for hosts no system capture API can see: a fully immersive
+    // Unity app renders through Compositor Services, so ReplayKit only captures its empty window.
+    // This renders a spectator camera into a RenderTexture, reads it back asynchronously and hands
+    // the pixels to the native WebRTC source (VPR_PushFrameBGRA).
+    //
+    // Kept cheap on purpose: the camera is disabled and rendered on demand only on streamed frames,
+    // at the stream resolution, with no HDR/MSAA/post/depth, and one readback in flight at a time.
+    // Put it anywhere in the host scene; VisionProWebRtcHost on Auto then picks this path.
     [AddComponentMenu("SuperAnretan/Remote Control/Vision Camera Streamer")]
     public class VisionCameraStreamer : MonoBehaviour
     {
-        /// <summary>Pixels-per-second budget (width x height x fps) above which the cost is flagged.</summary>
+        // Pixels-per-second budget (width x height x fps) above which the cost is flagged in the log.
         private const long FrameBudgetPixelsPerSecond = 960L * 540L * 20L;
 
         [Header("Config")]
@@ -91,10 +69,8 @@ namespace SuperAnretan.RemoteControl
         private int _framesPushed;
         private bool _readbackFailureLogged;
 
-        /// <summary>True while frames are being rendered and pushed to the video source.</summary>
         public bool IsStreaming => _streaming;
 
-        /// <summary>Frames handed to the native video source since streaming started.</summary>
         public int FramesPushed => _framesPushed;
 
         private void OnEnable()
@@ -235,12 +211,8 @@ namespace SuperAnretan.RemoteControl
             ConfigureScriptableRenderPipelineCamera();
         }
 
-        /// <summary>
-        /// Turns off post-processing, in-pipeline anti-aliasing and (by default) shadows on the
-        /// spectator camera. Done by reflection on purpose: those knobs live on URP's
-        /// <c>UniversalAdditionalCameraData</c>, and this package must not take a hard dependency on
-        /// a render pipeline the consumer may not have installed. Runs once per stream start.
-        /// </summary>
+        // Reflection on purpose: these knobs live on URP's UniversalAdditionalCameraData, and this
+        // package must not take a hard dependency on a render pipeline the consumer may not have.
         private void ConfigureScriptableRenderPipelineCamera()
         {
             if (GraphicsSettings.currentRenderPipeline == null) return;
@@ -294,10 +266,7 @@ namespace SuperAnretan.RemoteControl
             AsyncGPUReadback.RequestIntoNativeArray(ref _pixels, _renderTarget, 0, OnReadbackComplete);
         }
 
-        /// <summary>
-        /// Renders the one frame about to be streamed. <c>Camera.Render()</c> is a legacy-pipeline
-        /// call, so under any scriptable render pipeline the frame goes through a render request.
-        /// </summary>
+        // Camera.Render() is legacy-pipeline only, so under any SRP the frame goes through a request.
         private void RenderSpectator()
         {
             if (GraphicsSettings.currentRenderPipeline != null)

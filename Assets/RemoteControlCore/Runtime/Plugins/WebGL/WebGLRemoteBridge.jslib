@@ -1,18 +1,15 @@
-// WebGLRemoteBridge.jslib
-// Browser side of the WebGL controller: WebSocket signaling + RTCPeerConnection + RTCDataChannel
-// + incoming video track rendered into an HTMLVideoElement that is copied into a Unity texture.
+// Browser side of the WebGL controller: WebSocket signaling + RTCPeerConnection + RTCDataChannel,
+// plus the incoming video track rendered into an HTMLVideoElement and copied into a Unity texture.
 //
-// All events reach C# through ONE callback: cb(typeUtf8Ptr, payloadUtf8Ptr).
-// Event types:
-//   signaling-open, signaling-closed(reason), signaling-rejected(reason), device-list(json {devices:[...]}),
+// All events reach C# through one callback, cb(typeUtf8Ptr, payloadUtf8Ptr):
+//   signaling-open, signaling-closed(reason), signaling-rejected(reason), device-list(json),
 //   connecting(deviceId), connected, disconnected(reason),
 //   datachannel-open, datachannel-closed, datachannel-message(text),
 //   video-started("w,h"), video-size("w,h"), video-stopped, ice-state(state), log(text)
 //
-// Identity: the controller owns a stable 128-bit clientId (sessionStorage, survives F5 in the same tab;
-// Web Locks make a duplicated tab pick a fresh id). It is sent in register-controller so the server can
-// keep pairing across the forced socket reconnect (Vercel max duration) and the host's fromId guards keep
-// matching. The signaling socket dropping is routine and never tears down an established peer.
+// Identity: a stable 128-bit clientId in sessionStorage (survives F5 in the same tab; Web Locks make
+// a duplicated tab pick a fresh id), sent in register-controller so the server keeps pairing across
+// the forced socket reconnect. A signaling drop is routine and never tears down an established peer.
 
 var WebGLRemoteBridgeLib = {
 
@@ -212,8 +209,7 @@ var WebGLRemoteBridgeLib = {
           reason += " (closed before open — check URL, token and origin allowlist)";
         }
         S.emit("signaling-closed", reason);
-        // A signaling drop does not kill an established peer connection, but a pending
-        // negotiation cannot complete without it.
+        // An established peer survives a signaling drop, but a pending negotiation cannot.
         if (S.pc && !S.connected) S.teardownPeer("signaling-lost");
         S.scheduleReconnect();
       };
@@ -366,10 +362,9 @@ var WebGLRemoteBridgeLib = {
 
       var videoTransceiver = pc.addTransceiver("video", { direction: "recvonly" });
 
-      // Ask for H.264 first. The host answers from *this* offer's payload order, so the encoder
-      // factory's preferredCodec on the Vision Pro cannot pick H.264 on its own — without this the
-      // negotiation lands on VP8 and the headset encodes 720p in software (libvpx), which is a lot
-      // of heat for nothing. Best effort: browsers without setCodecPreferences keep their default.
+      // Ask for H.264 first: the host answers from this offer's payload order, so without it the
+      // negotiation lands on VP8 and the headset encodes in software. Best effort — browsers
+      // without setCodecPreferences keep their default.
       try {
         if (videoTransceiver && videoTransceiver.setCodecPreferences && window.RTCRtpReceiver &&
             RTCRtpReceiver.getCapabilities) {
@@ -466,9 +461,8 @@ var WebGLRemoteBridgeLib = {
       if (S.pc) S.teardownPeer("user");
     },
 
-    // Tab closing / navigating away: tell the host right now so it stops capturing (fast path; the
-    // server-side pairing lease is the fallback). `pagehide` covers iOS Safari, which often skips
-    // beforeunload; a persisted (bfcache) pagehide is NOT a departure.
+    // Tab closing or navigating away: tell the host right away so it stops capturing. The
+    // server-side pairing lease is the fallback. A persisted (bfcache) pagehide is not a departure.
     onPageLeaving: function () {
       var S = WebGLRemote;
       if (S.unloadSent) return;
@@ -552,8 +546,8 @@ var WebGLRemoteBridgeLib = {
       }
     },
 
-    // Diagnostics. Silent once a frame has landed; until then it says, at most every two
-    // seconds, which gate is blocking and what both sides believe about the video.
+    // Silent once a frame has landed; until then reports, at most every two seconds, which gate is
+    // blocking and what both sides believe about the video.
     diagNote: function (reason) {
       var S = WebGLRemote, v = S.video, t = Date.now();
       if (S.upOk || t - S.diagAt < 2000) return;
@@ -566,10 +560,8 @@ var WebGLRemoteBridgeLib = {
             ", presented=" + S.frameCount + ", dirty=" + S.frameDirty);
     },
 
-    // Reads one pixel back out of the texture GL.textures[texId] resolved to. Run BEFORE the first
-    // upload it is an identity test: the pixel must be the magenta Unity filled the Texture2D with,
-    // and anything else proves GetNativeTexturePtr did not hand us this texture. Run after the
-    // upload it proves the frame actually landed there.
+    // Reads one pixel back out of the texture. Before the first upload it is an identity test (the
+    // pixel must be the magenta Unity filled the Texture2D with); after it, proof the frame landed.
     diagReadback: function (tex, w, h, label) {
       var gl = GLctx, S = WebGLRemote;
       try {
@@ -592,12 +584,10 @@ var WebGLRemoteBridgeLib = {
       }
     },
 
-    // Uploads the current video frame into the GL texture Unity allocated for the
-    // Texture2D. Unity's WebGL2 backend allocates Texture2D storage with texStorage2D,
-    // which makes the texture IMMUTABLE: texImage2D on it fails with GL_INVALID_OPERATION
-    // ("Texture is immutable") and the frame never lands. texSubImage2D is the only legal
-    // upload path there, and it requires the source video to match the texture exactly,
-    // hence the (w,h) the caller passes in.
+    // Uploads the current video frame into the GL texture Unity allocated for the Texture2D.
+    // Unity's WebGL2 backend uses texStorage2D, which makes the texture immutable: texImage2D then
+    // fails with GL_INVALID_OPERATION and the frame never lands. texSubImage2D is the only legal
+    // path, and it needs the source to match the texture exactly — hence the (w,h) from the caller.
     updateTexture: function (texId, w, h) {
       var S = WebGLRemote, v = S.video;
       if (!v || !S.hasVideo || v.readyState < 2) { S.diagNote("no video / not ready"); return 0; }
@@ -606,9 +596,8 @@ var WebGLRemoteBridgeLib = {
       var vw = v.videoWidth | 0, vh = v.videoHeight | 0;
       if (vw <= 0 || vh <= 0) { S.diagNote("video has no dimensions"); return 0; }
 
-      // The video resized without the "resize" event having reached Unity yet (or the
-      // texture is still the old size). Re-publish the size and skip this frame; the view
-      // reallocates the texture and the next frame uploads cleanly.
+      // The resize event has not reached Unity yet. Re-publish the size and skip this frame; the
+      // view reallocates the texture and the next frame uploads cleanly.
       if (vw !== S.videoW || vh !== S.videoH) {
         S.videoW = vw; S.videoH = vh;
         S.emit("video-size", vw + "," + vh);
@@ -623,17 +612,16 @@ var WebGLRemoteBridgeLib = {
       var tex = GL.textures[texId];
       if (!tex) { S.diagNote("GL.textures[" + texId + "] is empty"); return 0; }
 
-      // The upload path is decided per texture, not once per session: a texture Unity
-      // allocated differently (or a restored context handing back the same slot) must be
-      // probed again rather than inheriting a stale decision.
+      // Decided per texture, not once per session: a differently allocated texture (or a restored
+      // context reusing the slot) must be probed again rather than inherit a stale decision.
       var key = texId + "x" + w + "x" + h;
       if (S.uploadKey !== key) {
         S.uploadKey = key;
         S.uploadMode = null;
         S.uploadFails = 0;
         S.diagPost = 0;
-        // Identity check, before this texture is written to for the first time: Unity filled the
-        // Texture2D with magenta, so rgba(255,0,255,255) here means texId really is that texture.
+        // Identity check before the first write: rgba(255,0,255,255) means texId really is the
+        // Texture2D Unity filled with magenta.
         S.diagReadback(tex, w, h, "before first upload into GL.textures[" + texId + "]");
       }
 
@@ -651,10 +639,9 @@ var WebGLRemoteBridgeLib = {
           gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, v);
           ok = 1;
         } else {
-          // First frame into this texture: prefer texSubImage2D and verify, so a texture
-          // whose storage was never allocated can still fall back to texImage2D. glGetError
-          // is a sync point, so it is paid once per texture, not once per frame. The drain
-          // is bounded — a lost context can keep reporting an error forever.
+          // First frame into this texture: try texSubImage2D and verify, so a texture whose
+          // storage was never allocated can still fall back to texImage2D. glGetError is a sync
+          // point, paid once per texture. The drain is bounded: a lost context errors forever.
           for (var i = 0; i < 32 && gl.getError() !== gl.NO_ERROR; i++) { }
           gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, v);
           if (gl.getError() === gl.NO_ERROR) {
@@ -666,8 +653,8 @@ var WebGLRemoteBridgeLib = {
               S.uploadMode = "teximage";
               ok = 1;
             } else {
-              // Neither path worked. Stop paying for the probe after a few frames and keep
-              // the spec-correct call so a transient failure can still recover.
+              // Neither path worked. Stop probing after a few frames but keep the spec-correct
+              // call, so a transient failure can still recover.
               S.uploadFails++;
               if (S.uploadFails === 1) {
                 S.log("[Video] Frame upload failed: neither texSubImage2D nor texImage2D accepted the video.");

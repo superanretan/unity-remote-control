@@ -2,19 +2,18 @@
 // Shared by the Vercel Function adapter (api/signaling.js) and the local dev server (server.js).
 //
 // Design invariants (see README "How it survives Vercel's 300 s socket limit"):
-//   • A WebSocket closing means NOTHING for registry, pairing or the WebRTC session. Sockets are
-//     replaced every ≤300 s on Vercel; only a stale `lastSeen` removes a host, only lease expiry or an
-//     explicit `disconnect` ends a pairing.
-//   • Relay goes through a per-recipient mailbox in the store (RPUSH / LPOP). Pub/sub is only a doorbell.
-//     The mailbox is drained right after a socket registers, so a message that arrived during a
-//     reconnect gap is delivered as soon as the recipient is back — on any instance.
-//   • `fromId` is always stamped from the socket, never trusted from the payload.
-//   • Every id has exactly one live owner recorded in the store (`own:<role>:<id>` = "<instance>:<epoch>").
-//     Registration claims it; every later message and every mailbox drain is fenced on it. A socket that lost
-//     ownership (replaced on this or another instance) can neither steal mailbox items nor release a lease,
-//     even if the pub/sub eviction event has not reached its instance yet.
-//   • Messages of one socket are processed strictly in order (per-socket promise chain), so
-//     `register-controller` immediately followed by `list-devices` / `offer` cannot race.
+//   - A closing WebSocket means nothing for registry, pairing or the WebRTC session. Sockets are
+//     replaced every <=300 s on Vercel; only a stale lastSeen removes a host, only lease expiry or
+//     an explicit disconnect ends a pairing.
+//   - Relay goes through a per-recipient mailbox in the store (RPUSH / LPOP); pub/sub is only a
+//     doorbell. The mailbox is drained right after a socket registers, so a message that arrived
+//     during a reconnect gap is delivered as soon as the recipient is back, on any instance.
+//   - fromId is always stamped from the socket, never trusted from the payload.
+//   - Every id has exactly one live owner in the store (own:<role>:<id> = "<instance>:<epoch>").
+//     Registration claims it; every later message and mailbox drain is fenced on it, so a replaced
+//     socket can neither steal mailbox items nor release a lease.
+//   - One socket's messages are processed strictly in order (per-socket promise chain), so
+//     register-controller followed by list-devices / offer cannot race.
 
 import { randomUUID, randomBytes } from "node:crypto";
 import { isValidId, isValidSessionId, sanitizeName, sanitizeShort, normalizeStatus, normalizeDeviceTimeout } from "./validate.js";
@@ -35,7 +34,7 @@ export function createSignaling({ store, config, log = console.log }) {
   let tickTimer = null;
   let unsubscribe = null;
   let closed = false;
-  /** pending | ok | degraded (pub/sub down) | error | misconfigured — reported by GET /api/health. */
+  // pending | ok | degraded (pub/sub down) | error | misconfigured, reported by GET /api/health.
   let storeStatus = { state: "pending", detail: null };
 
   const verbose = (line) => { if (config.verbose) log(line); };
@@ -50,10 +49,8 @@ export function createSignaling({ store, config, log = console.log }) {
     log(`[signaling] instance ${instanceId} attached (store=${store.kind}, deviceTimeout=${config.deviceTimeoutMs / 1000}s, pairLease=${config.pairLeaseSec}s, rooms=${config.rooms.open ? "open" : [...new Set(config.rooms.byToken.values())].join("|")})`);
   }
 
-  /**
-   * Confirms the store is actually usable and records the verdict for GET /api/health. Never throws and
-   * never blocks the cold start: an unreachable Redis has to be *reported*, not turned into a hung upgrade.
-   */
+  // Confirms the store is usable and records the verdict for GET /api/health. Never throws and never
+  // blocks the cold start: an unreachable Redis must be reported, not turned into a hung upgrade.
   async function verifyStore() {
     if (config.misconfigured) {
       storeStatus = { state: "misconfigured", detail: config.misconfigured.slug };
@@ -119,8 +116,8 @@ export function createSignaling({ store, config, log = console.log }) {
     socket.on("error", () => { /* close follows */ });
 
     if (error) {
-      // Accept the upgrade just long enough to tell the client WHY, then close. A raw HTTP 401 would
-      // surface in the browser as an opaque close code 1006 and the Unity log would stay silent.
+      // Accept the upgrade just long enough to tell the client why, then close: a raw HTTP 401
+      // surfaces in the browser as an opaque close code 1006.
       log(`[ws] rejected ${req.socket?.remoteAddress ?? "?"}: ${error}`);
       send(socket, { type: "error", message: error });
       try { socket.close(closeCode, error); } catch { /* ignore */ }
@@ -184,8 +181,8 @@ export function createSignaling({ store, config, log = console.log }) {
     const table = rc.role === "host" ? r.hosts : r.controllers;
     // Only forget the socket locally, and only if it is still the current one for that id.
     if (table.get(rc.id) === socket) table.delete(rc.id);
-    // Deliberately NO registry/pair/status changes and NO peer notification: on Vercel this happens
-    // every ≤300 s for perfectly healthy clients. Staleness is decided by lastSeen / lease expiry.
+    // Deliberately no registry/pair/status change and no peer notification: on Vercel this happens
+    // every <=300 s for healthy clients. Staleness is decided by lastSeen / lease expiry.
     verbose(`[ws] closed ${rc.role}:${rc.id}${rc.evicted ? " (evicted)" : ""}`);
   }
 
@@ -196,12 +193,12 @@ export function createSignaling({ store, config, log = console.log }) {
     if (rc.evicted) return;                              // stale socket replaced elsewhere — ignore everything
     verbose(`[msg] ${rc.role ?? "?"}:${rc.id ?? "?"} → ${msg.type}`);
 
-    // Never pretend to work: without a shared store on Vercel the two peers would simply never find each
-    // other. Say so on the wire, so the reason shows up on Unity's LogChannel instead of an empty device list.
+    // Never pretend to work: without a shared store on Vercel the peers would never find each other.
+    // Say so on the wire, so the reason reaches Unity's LogChannel instead of an empty device list.
     if (config.misconfigured) return sendError(socket, `server-misconfigured:${config.misconfigured.slug}`);
 
-    // Ownership fence: a registered socket whose id has since been claimed by a newer socket (possibly on
-    // another instance whose eviction event is still in flight) must not act on anything.
+    // Ownership fence: a registered socket whose id has since been claimed by a newer one (possibly
+    // on another instance whose eviction event is still in flight) must not act on anything.
     if (rc.role && !(msg.type === "register-device" || msg.type === "register-controller")) {
       if (!await store.ownerIs(rc.room, rc.role, rc.id, rc.token)) { evict(socket, "lost ownership"); return; }
     }
@@ -249,8 +246,8 @@ export function createSignaling({ store, config, log = console.log }) {
     if (rc.role !== "host") return sendError(socket, "not-registered");
     const ok = await store.registryTouch(rc.room, rc.id, Date.now());
     if (!ok && rc.entryJson) {
-      // Registry entry vanished (Redis flush / eviction) while the socket is alive: put it back instead of
-      // leaving the host invisible until its next reconnect.
+      // Registry entry vanished (Redis flush / eviction) while the socket is alive: put it back
+      // instead of leaving the host invisible until its next reconnect.
       await store.registryUpsert(rc.room, rc.id, rc.entryJson, Date.now());
       await store.publish({ t: "devices", room: rc.room });
       log(`[registry] re-inserted host ${rc.id} after registry loss`);
@@ -274,8 +271,8 @@ export function createSignaling({ store, config, log = console.log }) {
 
   async function registerController(socket, msg) {
     const rc = socket.rc;
-    // The browser owns its identity (sessionStorage + Web Locks) so a reconnect keeps `fromId` stable
-    // and the host's `_controllerId` guards keep matching. Unknown/invalid → server-generated.
+    // The browser owns its identity (sessionStorage + Web Locks), so a reconnect keeps fromId stable
+    // and the host's guards keep matching. Unknown or invalid ids are server-generated.
     const clientId = isValidId(msg.clientId) ? msg.clientId : randomUUID().replace(/-/g, "");
     await adopt(socket, "controller", clientId);
     send(socket, { type: "registered", clientId, iceServers: issueIceServers(config.turn, clientId) });
@@ -289,11 +286,9 @@ export function createSignaling({ store, config, log = console.log }) {
     await drainMailbox(socket);
   }
 
-  /**
-   * Bind (role, id) to the socket and become the id's single owner in the store. Any previous socket with the
-   * same id — here or on another instance — is fenced out immediately (ownership check on its next action)
-   * and closed as soon as the eviction event reaches it.
-   */
+  // Binds (role, id) to the socket and claims the id's single ownership in the store. Any previous
+  // socket with the same id, here or on another instance, is fenced out immediately and closed as
+  // soon as the eviction event reaches it.
   async function adopt(socket, role, id) {
     const rc = socket.rc;
     rc.role = role;
@@ -329,8 +324,8 @@ export function createSignaling({ store, config, log = console.log }) {
       const target = await store.registryGet(rc.room, targetId);
       if (!target || isStale(target, Date.now())) return sendError(socket, "device-not-found");
 
-      // One target per controller: switching devices without an explicit disconnect releases the old lease
-      // instead of leaving the previous host "busy" until expiry.
+      // One target per controller: switching devices without an explicit disconnect releases the old
+      // lease instead of leaving the previous host "busy" until expiry.
       if (rc.peerDeviceId && rc.peerDeviceId !== targetId) {
         if (await store.pairRelease(rc.room, rc.peerDeviceId, rc.id)) await store.publish({ t: "devices", room: rc.room });
         rc.peerDeviceId = null;
@@ -382,8 +377,8 @@ export function createSignaling({ store, config, log = console.log }) {
         let items;
         do {
           if (socket.readyState !== OPEN || rc.evicted) return;
-          // Ownership fence before AND after the pop: a socket that was replaced elsewhere must not take
-          // messages meant for its successor. LPOP is atomic, so whatever we popped is ours to restore.
+          // Fenced before and after the pop: a socket replaced elsewhere must not take messages
+          // meant for its successor. LPOP is atomic, so whatever was popped is ours to restore.
           if (!await store.ownerIs(rc.room, rc.role, rc.id, rc.token)) { evict(socket, "lost ownership"); return; }
           items = await store.mailboxDrain(rc.room, rc.id, DRAIN_BATCH);
           if (items.length === 0) break;
@@ -443,7 +438,7 @@ export function createSignaling({ store, config, log = console.log }) {
     }
   }
 
-  /** Coalesce bursts (register + set-status + lease) into one list read per room. */
+  // Coalesces bursts (register + set-status + lease) into one list read per room.
   function scheduleDeviceList(room) {
     const r = roomState(room);
     if (r.listTimer) return;
@@ -483,7 +478,7 @@ export function createSignaling({ store, config, log = console.log }) {
       });
     }
     if (stale.length) {
-      // Compare-and-delete: a host that heart-beats / re-registers between our read and this delete survives.
+      // Compare-and-delete: a host that heart-beats between our read and this delete survives.
       store.registryRemoveIfStale(room, stale).then((n) => {
         if (n > 0) for (const { id } of stale) log(`[registry] host timed out: ${id} room=${room}`);
       }).catch(() => {});
@@ -498,17 +493,17 @@ export function createSignaling({ store, config, log = console.log }) {
     if (closed) return;
     const now = Date.now();
 
-    // The subscriber connection has no outbound traffic of its own and providers reap idle connections.
+    // The subscriber connection has no outbound traffic of its own, and providers reap idle ones.
     await store.keepalive();
 
-    // Dead-TCP detection. terminate() ≠ "device left": the client reconnects and re-registers.
+    // Dead-TCP detection. terminate() is not "device left": the client reconnects and re-registers.
     for (const s of sockets) {
       if (s.rc?.isAlive === false) { try { s.terminate(); } catch { /* ignore */ } continue; }
       if (s.rc) s.rc.isAlive = false;
       try { s.ping(); } catch { /* ignore */ }
     }
 
-    // Keep ownership records of live registered sockets alive; drop sockets that lost ownership elsewhere.
+    // Refresh ownership of live registered sockets; drop those that lost ownership elsewhere.
     for (const s of sockets) {
       const rc = s.rc;
       if (!rc || !rc.role || rc.evicted || s.readyState !== OPEN) continue;
@@ -516,7 +511,7 @@ export function createSignaling({ store, config, log = console.log }) {
     }
 
     for (const [room, r] of rooms) {
-      // Controllers: keep the lease alive while their socket lives here; notice a host that really died.
+      // Controllers: keep the lease alive while their socket lives here, and notice a dead host.
       for (const s of r.controllers.values()) {
         const rc = s.rc;
         if (!rc.peerDeviceId || s.readyState !== OPEN) continue;
@@ -617,7 +612,7 @@ export function createSignaling({ store, config, log = console.log }) {
     res.end(`remote-control-signaling ${state} — instance=${instanceId} store=${store.kind} localHosts=${localHosts} localControllers=${localControllers}\n`);
   }
 
-  /** Room the request is authorised for, or null. Open mode (no token configured) → "default". */
+  // Room the request is authorised for, or null. Open mode (no token configured) means "default".
   function roomFromRequest(req, url) {
     if (config.rooms.open) return "default";
     const token = url.searchParams.get("token") || headerToken(req);

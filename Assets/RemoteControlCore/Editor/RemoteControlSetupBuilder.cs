@@ -10,15 +10,9 @@ using UnityEngine.UI;
 
 namespace SuperAnretan.RemoteControl.Editor
 {
-    /// <summary>
-    /// Reproducible generator for the WebGL ↔ Vision Pro setup:
-    ///   Tools ▸ Remote Control ▸ WebRTC ▸ Create Prefabs
-    ///   Tools ▸ Remote Control ▸ WebRTC ▸ Build WebGL Controller Scene
-    ///   Tools ▸ Remote Control ▸ WebRTC ▸ Build Vision Pro Host Scene
-    ///   Tools ▸ Remote Control ▸ WebRTC ▸ Create Everything
-    /// Existing native prefabs/scenes are left untouched; the old ControllerScene is preserved as
-    /// NativeControllerScene before being rebuilt for WebGL.
-    /// </summary>
+    // Reproducible generator for the WebGL <-> Vision Pro setup, under Tools > Remote Control >
+    // WebRTC. Existing native prefabs/scenes are left untouched; the old ControllerScene is kept
+    // as NativeControllerScene before being rebuilt for WebGL.
     public static class RemoteControlSetupBuilder
     {
         // Paths inside this repository, used when the package sits under Assets/ (development / embedded).
@@ -454,11 +448,9 @@ namespace SuperAnretan.RemoteControl.Editor
             return so;
         }
 
-        /// <summary>
-        /// Creates every ScriptableObject the prefabs need, if it is missing. This is what makes the menu work in a
-        /// project that consumes the package from a Git URL: the package's own assets are read-only, so a full set is
-        /// generated under <see cref="ConsumerRoot"/> instead. Existing assets are never touched.
-        /// </summary>
+        // Creates every ScriptableObject the prefabs need, if missing. This is what makes the menu
+        // work in a project consuming the package from a Git URL: those assets are read-only, so a
+        // full set is generated under ConsumerRoot instead. Existing assets are never touched.
         [MenuItem("Tools/Remote Control/WebRTC/Create SO Assets", priority = 9)]
         public static void EnsureAllSoAssets()
         {

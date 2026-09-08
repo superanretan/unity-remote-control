@@ -1,11 +1,8 @@
-// VisionProRemoteBridge.h
-// C ABI between Unity C# (VisionProNativeBridge.cs) and the visionOS native plugin.
-//
+// C ABI between Unity C# (VisionProNativeBridge.cs) and the visionOS native plugin:
 //   WebRtcHostBridge.mm     — native RTCPeerConnection, DataChannel, video source/encoder
 //   ScreenCaptureBridge.mm  — ReplayKit capture (windowed apps) / UnityCamera hand-off
-//
-// Frames flow  capture → VPR_PushSampleBuffer → RTCVideoSource → encoder → browser
-// entirely in native code. C# only sees small string events.
+// Frames flow capture -> VPR_PushSampleBuffer -> RTCVideoSource -> encoder -> browser entirely in
+// native code; C# only sees small string events.
 
 #pragma once
 
@@ -17,7 +14,7 @@
 extern "C" {
 #endif
 
-/// (type, payload) — both UTF-8, valid only for the duration of the call. May be invoked on any thread.
+// (type, payload): both UTF-8, valid only for the duration of the call. May run on any thread.
 typedef void (*VPR_EventCallback)(const char *type, const char *payload);
 
 // ───────── lifecycle ─────────
@@ -39,14 +36,10 @@ void VPR_StopCapture(void);
 int  VPR_IsCapturing(void);
 
 // ───────── capture: frames rendered by the app itself ─────────
-// ReplayKit captures the app's *window*. A fully immersive Unity app renders through Compositor
-// Services instead, and that composition is not exposed to any system capture API — the stream
-// comes out uniformly dark. With backend 3 the app renders a spectator camera itself and hands the
-// pixels over here.
-
-/// One BGRA32 frame, `stride` bytes per row. `data` is only read during the call.
-/// `flipVertically` copies the rows bottom-up — GPU readback row order is platform-dependent, and
-/// reversing the copy costs nothing, unlike a full-screen blit on the way out.
+// No system capture API sees a fully immersive app's Compositor Services output, so backend 3 has
+// the app render a spectator camera and hand the pixels over here.
+// One BGRA32 frame, `stride` bytes per row. `data` is only read during the call. `flipVertically`
+// copies the rows bottom-up, which costs nothing unlike a full-screen blit.
 void VPR_PushFrameBGRA(const void *data, int width, int height, int stride,
                        int flipVertically, int64_t timestampNs);
 

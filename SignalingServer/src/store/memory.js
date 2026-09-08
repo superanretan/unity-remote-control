@@ -63,7 +63,7 @@ export class MemoryStore {
     }
   }
 
-  /** Compare-and-delete: removes each device only if its lastSeen is still the observed (stale) value. */
+  // Compare-and-delete: removes a device only if its lastSeen is still the observed stale value.
   async registryRemoveIfStale(room, observed) {
     let removed = 0;
     for (const { id, seenMs } of observed) {
@@ -111,7 +111,7 @@ export class MemoryStore {
     return box.items.splice(0, count);
   }
 
-  /** Puts undelivered items back at the front, preserving order. */
+  // Puts undelivered items back at the front, preserving order.
   async mailboxUnshift(room, id, items) {
     if (!items.length) return;
     const box = this._box(this._mboxKey(room, id));

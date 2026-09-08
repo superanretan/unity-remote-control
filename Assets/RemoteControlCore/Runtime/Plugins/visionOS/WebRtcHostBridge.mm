@@ -1,4 +1,3 @@
-// WebRtcHostBridge.mm
 // Native WebRTC host peer for the Vision Pro: answers the browser's offer, exposes the browser's
 // "commands" DataChannel to C#, and owns the dormant video source that screen capture feeds.
 //

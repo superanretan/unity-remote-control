@@ -7,11 +7,8 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Unity Transport server.
-    /// Listens for incoming connections, receives command JSON,
-    /// deserializes to <see cref="RemoteCommand"/> and raises the command event channel.
-    /// </summary>
+    // Unity Transport server: accepts clients, parses incoming RemoteCommand JSON and raises it
+    // on the CommandReceivedChannel. Wire protocol: [int32 length][UTF8 JSON].
     public class TransportHost : MonoBehaviour
     {
         [Header("Config")]
@@ -45,9 +42,6 @@ namespace SuperAnretan.RemoteControl
             }
         }
 
-        /// <summary>
-        /// Bind and listen on the configured port.
-        /// </summary>
         public void StartHost()
         {
             if (_isRunning)
@@ -76,9 +70,6 @@ namespace SuperAnretan.RemoteControl
             Log($"[Host] Listening on {localIp}:{_networkConfig.Port}");
         }
 
-        /// <summary>
-        /// Stop the host and disconnect all clients.
-        /// </summary>
         public void StopHost()
         {
             if (!_isRunning) return;

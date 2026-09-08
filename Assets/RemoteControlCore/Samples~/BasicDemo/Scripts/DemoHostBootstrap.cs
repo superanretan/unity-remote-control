@@ -2,10 +2,6 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl.Samples
 {
-    /// <summary>
-    /// Bootstrap for the Host demo scene.
-    /// Logs the local IP address on start so the user knows where to connect.
-    /// </summary>
     public class DemoHostBootstrap : MonoBehaviour
     {
         [Header("Logging")]

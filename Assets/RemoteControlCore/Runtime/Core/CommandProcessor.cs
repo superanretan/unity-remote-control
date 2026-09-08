@@ -2,11 +2,6 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Listens to a <see cref="CommandEventChannel"/> for incoming commands,
-    /// resolves the handler and target from their respective registries,
-    /// and executes the command. Logs all activity through a <see cref="StringEventChannel"/>.
-    /// </summary>
     public class CommandProcessor : MonoBehaviour
     {
         [Header("Event Channels")]
@@ -48,21 +43,18 @@ namespace SuperAnretan.RemoteControl
                 return;
             }
 
-            // --- Resolve handler ---
             if (!_handlerRegistry.TryGetHandler(command.commandType, out var handler))
             {
                 Log($"[WARN] Unknown command type: '{command.commandType}' — no handler registered.");
                 return;
             }
 
-            // --- Resolve target ---
             if (!_targetRegistry.TryGetTarget(command.targetId, out var target))
             {
                 Log($"[WARN] Target not found: '{command.targetId}'.");
                 return;
             }
 
-            // --- Execute ---
             try
             {
                 handler.Handle(command, target.gameObject);

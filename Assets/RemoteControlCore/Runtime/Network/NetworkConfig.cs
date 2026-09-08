@@ -5,21 +5,13 @@ using UnityEngine;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// ScriptableObject configuration for network transport.
-    /// Shared between Host and Client.
-    /// The "Transport" section drives the native UDP / Unity Transport path,
-    /// the "Signaling", "ICE" and "Video" sections drive the WebGL ↔ Vision Pro WebRTC path.
-    /// </summary>
+    // Shared by host and client. The Transport section drives the native UDP / Unity Transport
+    // path; Signaling, ICE and Video drive the WebGL <-> Vision Pro WebRTC path.
     [CreateAssetMenu(
         fileName = "NetworkConfig",
         menuName = "Remote Control/Config/Network Config")]
     public class NetworkConfig : ScriptableObject, ISerializationCallbackReceiver
     {
-        /// <summary>
-        /// One entry of <c>RTCPeerConnection.iceServers</c>. STUN needs only <see cref="urls"/>;
-        /// TURN additionally needs <see cref="username"/> and <see cref="credential"/>.
-        /// </summary>
         [Serializable]
         public class IceServerEntry
         {
@@ -76,13 +68,12 @@ namespace SuperAnretan.RemoteControl
             new IceServerEntry("stun:stun.l.google.com:19302"),
         };
 
-        // Legacy field (package 1.x): flat URL list without credentials. Migrated into _iceServerEntries on load.
+        // 1.x: flat URL list without credentials. Migrated into _iceServerEntries on load.
         [SerializeField, HideInInspector] private string[] _iceServers = Array.Empty<string>();
 
-        // These three decide how much the Vision Pro pays for the preview. With the UnityCamera
-        // backend the headset renders an extra pass at exactly this size and rate, so the cost is
-        // roughly linear in width x height x fps — 720p @ 30 is four times the work of 540p @ 15 for
-        // a picture nobody looks at that closely. Snapped down to a multiple of 16 by the streamer.
+        // Cost on the headset is roughly linear in width x height x fps: with the UnityCamera
+        // backend it renders an extra pass at exactly this size and rate. Snapped down to a
+        // multiple of 16 by the streamer.
         [Header("Video (Vision Pro → WebGL)")]
         [Tooltip("Width of the streamed frame. 960 is the recommended ceiling for a remote preview; " +
                  "the Vision Pro renders an extra pass at this size for every streamed frame.")]
@@ -103,37 +94,19 @@ namespace SuperAnretan.RemoteControl
         [Range(200, 4000)]
         [SerializeField] private int _videoBitrateKbps = 1200;
 
-        /// <summary>Port number (default 7777).</summary>
         public ushort Port => _port;
-
-        /// <summary>Max simultaneous client connections.</summary>
         public int MaxConnections => _maxConnections;
-
-        /// <summary>WebSocket URL of the signaling server exactly as configured (ws:// or wss://), without the token.</summary>
         public string SignalingServerUrl => _signalingServerUrl;
-
-        /// <summary>Shared signaling token (ROOM_TOKEN). Empty when the server runs without authentication.</summary>
         public string SignalingToken => _signalingToken;
-
-        /// <summary>
-        /// URL the clients actually connect to: <see cref="SignalingServerUrl"/> plus <c>?token=…</c> when a
-        /// token is configured and the URL does not already carry one. Both the browser and the Vision Pro use it.
-        /// </summary>
-        public string SignalingConnectUrl => BuildConnectUrl(_signalingServerUrl, _signalingToken);
-
-        /// <summary>Display name the host registers under.</summary>
         public string DeviceName => _deviceName;
-
-        /// <summary>Seconds between host heartbeats.</summary>
         public float HeartbeatInterval => _heartbeatInterval;
-
-        /// <summary>Seconds without heartbeat before the server forgets a device (announced by the host on registration).</summary>
         public float DeviceTimeout => _deviceTimeout;
-
-        /// <summary>ICE server entries (STUN/TURN with optional credentials).</summary>
         public IReadOnlyList<IceServerEntry> IceServerEntries => _iceServerEntries;
 
-        /// <summary>Flat list of ICE URLs (credentials dropped). Kept for 1.x callers; prefer <see cref="IceServerEntries"/>.</summary>
+        // URL both peers connect to: the configured URL plus ?token=… when a token is set.
+        public string SignalingConnectUrl => BuildConnectUrl(_signalingServerUrl, _signalingToken);
+
+        // Flat URL list, credentials dropped. Kept for 1.x callers; prefer IceServerEntries.
         public string[] IceServers
         {
             get
@@ -145,24 +118,14 @@ namespace SuperAnretan.RemoteControl
             }
         }
 
-        /// <summary>Streamed video width.</summary>
         public int VideoWidth => _videoWidth;
-
-        /// <summary>Streamed video height.</summary>
         public int VideoHeight => _videoHeight;
-
-        /// <summary>Streamed video frame rate.</summary>
         public int VideoFps => _videoFps;
-
-        /// <summary>Max video bitrate in kbit/s.</summary>
         public int VideoBitrateKbps => _videoBitrateKbps;
 
-        /// <summary>
-        /// ICE servers as a JSON array of <c>RTCIceServer</c> objects — the format both the .jslib and the
-        /// visionOS native bridge consume:
-        /// <c>[{"urls":["stun:..."]},{"urls":["turn:host:3478?transport=udp"],"username":"u","credential":"c"}]</c>.
-        /// Entries without any URL are skipped. (1.x produced a flat array of strings; both consumers still accept that.)
-        /// </summary>
+        // JSON array of RTCIceServer objects, as consumed by the .jslib and the visionOS bridge:
+        // [{"urls":["stun:..."]},{"urls":["turn:host:3478"],"username":"u","credential":"c"}]
+        // Entries without a URL are skipped.
         public string IceServersJson()
         {
             var sb = new StringBuilder("[");
@@ -191,7 +154,6 @@ namespace SuperAnretan.RemoteControl
             return sb.Append(']').ToString();
         }
 
-        /// <summary>Appends <c>?token=</c> (or <c>&amp;token=</c>) unless the URL already carries a token.</summary>
         public static string BuildConnectUrl(string url, string token)
         {
             if (string.IsNullOrWhiteSpace(url)) return url;
@@ -223,7 +185,7 @@ namespace SuperAnretan.RemoteControl
             sb.Append('"');
         }
 
-        // ───────── legacy migration (1.x string[] _iceServers → IceServerEntry list) ─────────
+        // ───────── legacy migration: 1.x string[] _iceServers → IceServerEntry list ─────────
 
         void ISerializationCallbackReceiver.OnBeforeSerialize() { }
 
@@ -231,9 +193,8 @@ namespace SuperAnretan.RemoteControl
         {
             if (_iceServers == null || _iceServers.Length == 0) return;
 
-            // Old asset: the entry list is either empty or still holds only the code default. Replace it with
-            // the persisted URLs so no configured value is lost, then clear the legacy field so the next
-            // save writes the new shape.
+            // Only overwrite an untouched list (empty or still the code default), so no configured
+            // value is lost, then clear the legacy field so the next save writes the new shape.
             bool listIsDefault = _iceServerEntries == null || _iceServerEntries.Count == 0 ||
                                  (_iceServerEntries.Count == 1 && _iceServerEntries[0] != null && !_iceServerEntries[0].HasCredentials &&
                                   _iceServerEntries[0].urls != null && _iceServerEntries[0].urls.Length == 1 &&

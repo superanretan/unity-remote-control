@@ -5,7 +5,7 @@ const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const SESSION_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const CONTROL_RE = /[\x00-\x1f\x7f]/g;
 
-/** deviceId / clientId supplied by a client. */
+// deviceId / clientId supplied by a client.
 export function isValidId(value) {
   return typeof value === "string" && ID_RE.test(value);
 }
@@ -14,7 +14,7 @@ export function isValidSessionId(value) {
   return typeof value === "string" && SESSION_RE.test(value);
 }
 
-/** Human-readable device name: string only, control chars stripped, length-capped. */
+// Human-readable device name: string only, control chars stripped, length-capped.
 export function sanitizeName(value, maxLength, fallback = "Vision Pro") {
   if (typeof value !== "string") return fallback;
   const clean = value.replace(CONTROL_RE, "").trim();
@@ -22,7 +22,7 @@ export function sanitizeName(value, maxLength, fallback = "Vision Pro") {
   return clean.length > maxLength ? clean.slice(0, maxLength) : clean;
 }
 
-/** Short token-like strings (platform, reason, status …). */
+// Short token-like strings (platform, reason, status, ...).
 export function sanitizeShort(value, maxLength, fallback = "") {
   if (typeof value !== "string") return fallback;
   const clean = value.replace(CONTROL_RE, "").trim();
@@ -34,7 +34,7 @@ export function normalizeStatus(value) {
   return value === "busy" ? "busy" : "available";
 }
 
-/** Per-device heartbeat timeout announced by the host (seconds) → ms, clamped, or null. */
+// Per-device heartbeat timeout announced by the host: seconds to ms, clamped, or null.
 export function normalizeDeviceTimeout(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;

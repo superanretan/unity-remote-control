@@ -5,17 +5,9 @@ using UnityEngine.UI;
 
 namespace SuperAnretan.RemoteControl
 {
-    /// <summary>
-    /// Device picker UI: dropdown + Refresh + Connect + Disconnect + status line.
-    /// Talks only to <see cref="RemoteDiscoveryBase"/> and the SO event channels, so the same
-    /// panel works with any discovery/transport pair (signaling+WebRTC or UDP+Unity Transport).
-    ///
-    /// States:
-    ///   Searching  → dropdown empty, Connect disabled
-    ///   Found      → dropdown populated, Connect enabled
-    ///   Connecting → controls locked
-    ///   Connected  → dropdown/Refresh/Connect locked, Disconnect enabled, "_showWhenConnected" objects active
-    /// </summary>
+    // Device picker: dropdown + Refresh/Connect/Disconnect + status line. Backend-agnostic —
+    // talks only to RemoteDiscoveryBase and the SO channels, so it works with signaling+WebRTC
+    // and with UDP+Unity Transport alike.
     public class NetworkDiscoveryPanel : MonoBehaviour
     {
         [Header("Discovery backend")]
@@ -55,7 +47,6 @@ namespace SuperAnretan.RemoteControl
 
         public bool HasDiscovery => _discovery != null;
 
-        /// <summary>Swap the discovery backend at runtime (used by <see cref="DiscoveryBinder"/>).</summary>
         public void SetDiscovery(RemoteDiscoveryBase discovery)
         {
             if (_discovery == discovery) return;

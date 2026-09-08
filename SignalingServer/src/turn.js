@@ -6,7 +6,7 @@
 
 import { createHmac } from "node:crypto";
 
-/** Returns an RTCIceServer-shaped array or [] when TURN is not configured. */
+// Returns an RTCIceServer-shaped array, or [] when TURN is not configured.
 export function issueIceServers(turnConfig, subject, nowMs = Date.now()) {
   if (!turnConfig || !turnConfig.urls.length || !turnConfig.secret) return [];
   const expiry = Math.floor(nowMs / 1000) + turnConfig.ttlSec;

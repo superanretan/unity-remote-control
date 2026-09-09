@@ -53,6 +53,13 @@ namespace SuperAnretan.RemoteControl
         [Tooltip("Max DataChannel message size accepted for a command.")]
         [SerializeField] private int _maxCommandBytes = 65536;
 
+        [Tooltip("Warn when an OUTBOUND message gets this big. Browsers cap a DataChannel message " +
+                 "around 64 KB for interop and drop an oversized one without an error, so the only " +
+                 "warning is this one. Watch it especially for the snapshot: it re-escapes every " +
+                 "cached 'state' payload into a single message, so topics that each fit comfortably " +
+                 "can still overflow the replay together.")]
+        [SerializeField] private int _maxOutboundWarnBytes = 49152;
+
         [Header("Logging")]
         [SerializeField] private StringEventChannel _logChannel;
 
@@ -159,6 +166,11 @@ namespace SuperAnretan.RemoteControl
                 Log("[DataChannel] Cannot send — no controller connected (state cached for snapshot).");
                 return false;
             }
+            int bytes = Encoding.UTF8.GetByteCount(json);
+            if (bytes > _maxOutboundWarnBytes)
+                Log($"[DataChannel] WARNING — outbound message is {bytes} bytes, over the " +
+                    $"{_maxOutboundWarnBytes}-byte budget. The browser may drop it with no error.");
+
             if (VisionProNativeBridge.SendData(json)) return true;
             Log("[DataChannel] Send failed — channel not open.");
             return false;
@@ -176,7 +188,11 @@ namespace SuperAnretan.RemoteControl
         {
             var entries = new List<HostStateEntry>(_stateOrder.Count);
             foreach (var topic in _stateOrder) entries.Add(_stateCache[topic]);
-            TrySendRaw(HostMessage.Snapshot(entries).ToJson());
+
+            string json = HostMessage.Snapshot(entries).ToJson();
+            Log($"[DataChannel] Snapshot: {entries.Count} topic(s), {Encoding.UTF8.GetByteCount(json)} bytes.");
+
+            TrySendRaw(json);
             TrySendRaw(HostMessage.Capture(_captureState, _captureDetail).ToJson());
         }
 

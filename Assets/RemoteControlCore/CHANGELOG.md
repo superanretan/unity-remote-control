@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-09-09
+
+### Added
+- **Host-owned lists.** `RemoteListPayload` / `RemoteListItem` (`Runtime/Core/`) carry a list the host
+  pushes to the controller so both render the same rows. It travels as JSON inside `HostMessage.payload`,
+  the same way `HostStateSnapshot` already does, because `JsonUtility` cannot nest. The DTO lives in the
+  package rather than in either app on purpose: `JsonUtility` matches by field name, so two hand-copied
+  copies that drift by one field lose that field silently, with no exception. Every item carries a stable
+  `id` plus a `generation`, and `RemoteListSelectArgs` echoes that generation back on a click, which is
+  what lets a host refuse a click made against a list it has already replaced instead of acting on
+  whatever now sits in that position.
+- **`HostStateRouter`** (`Runtime/Core/`) flattens the host's return channel into one stream. On connect
+  the host does not replay individual `state` messages — it sends one `snapshot` holding every cached
+  topic, so a controller that only handled `msg.IsState` displayed nothing until something changed on the
+  host, which is indistinguishable from a broken link. The router caches every topic before fanning any
+  of them out and raises `SnapshotApplied` once at the end, so a controller can apply a coherent view
+  (list before selection) instead of reacting entry by entry. Capture state is surfaced separately, since
+  "DataChannel open" is not "video flowing".
+- **`RemoteListView`, `RemoteListRow`, `RemoteTabBar`, `RemoteListIconSet`** (`Runtime/UI/`) — the
+  controller side of a host-owned list and tab bar, domain-agnostic and prefab-driven. The host stays
+  authoritative: a click is a request, and the highlight follows the selection topic the host publishes
+  back, never the local click. `RemoteListView` reuses row objects rather than destroying them, because
+  `Destroy` is deferred to end-of-frame and fresh rows would otherwise share a layout group with the
+  outgoing ones for a frame and visibly jump. Sprites are never transferred — `presentationKey` names
+  which local sprite the controller should use.
+- `ROSTER_SYNC.md` — how to wire a host-owned list end to end, on both the host and the controller.
+
+### Changed
+- **The host now warns about oversized outbound messages.** `_maxCommandBytes` only ever guarded inbound
+  commands; outbound sends fail silently (the `.jslib` returns 0 and the browser reports nothing). The new
+  `_maxOutboundWarnBytes` budget logs before that happens, and `SendSnapshot` logs the serialized snapshot
+  size. This matters most for the snapshot, which re-escapes every cached `state` payload into a single
+  message: topics that each fit comfortably can still overflow the replay together.
+
 ## [2.2.0] - 2026-09-08
 
 ### Removed

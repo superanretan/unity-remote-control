@@ -11,6 +11,8 @@ Commands travel over **Unity Transport**, are serialized as **JSON**, and are di
 > [REMOTE_CONTROLLER.md](../../REMOTE_CONTROLLER.md).
 > **Using this package in your own project (custom controller UI, Vercel deployment, WebGL upload, Vision Pro host):**
 > [INTEGRATION.md](../../INTEGRATION.md) — start here.
+> **2.3 — a list the host owns, mirrored and clickable on the controller (roster, selection, tabs):**
+> [ROSTER_SYNC.md](ROSTER_SYNC.md), with full worked implementations for a Vision Pro host and a WebGL controller.
 
 ## Requirements
 

@@ -245,7 +245,7 @@ Self-hosting alternative: TLS via reverse proxy (Caddy/nginx/Cloudflare Tunnel) 
 
 ## 6. Network flow
 ```
-Vision Pro app start → WS connect (?token=) → register-device "Vision Pro Office" {deviceTimeout:15} → heartbeat every 2 s
+Vision Pro app start → WS connect (?token=) → register-device "Vision Pro Office" {deviceTimeout:15} → heartbeat every 2 s (paused while Unity's main loop is not running, so a backgrounded or non-rendering headset leaves the list after deviceTimeout)
 WebGL page start     → WS connect (?token=) → register-controller {clientId (sessionStorage + Web Lock)} → device-list → dropdown
                        every ≤300 s (Vercel): socket closed → reconnect ~1 s → re-register with the same id → nothing else changes
 User: select + Connect
@@ -298,7 +298,7 @@ controller log shows `[DataChannel] Received: [capture] topic=capture value=stre
 ## 10. Debugging / common errors
 | Symptom | Check |
 |---|---|
-| Device not in dropdown | Host log `[Signaling] Connected`? `curl /api/devices?token=…`. Same server URL **and token** on both sides? Same room (`ROOM_TOKENS`)? Heartbeat interval < `Device Timeout`? |
+| Device not in dropdown | Host log `[Signaling] Connected`? `curl /api/devices?token=…`. Same server URL **and token** on both sides? Same room (`ROOM_TOKENS`)? Heartbeat interval < `Device Timeout`? Is the host app actually running its player loop (foreground, rendering)? A stalled loop pauses the heartbeat on purpose. |
 | `[Signaling] ERROR — server rejected the connection: unauthorized` / `origin-not-allowed` | `NetworkConfig.SignalingToken` ≠ server `ROOM_TOKEN`, or the page origin is missing from `ALLOWED_ORIGINS`. |
 | `Signaling reconnecting...` every 5 min | Normal on Vercel Hobby (300 s max duration). Session and list are unaffected; if they are, the server is not the 2.0 one. |
 | `Signaling offline — reconnecting...` | URL/port, TLS cert validity, mixed content (https page + `ws://` is blocked), firewall. |

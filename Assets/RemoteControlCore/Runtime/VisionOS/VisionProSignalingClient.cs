@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Net.WebSockets;
 using System.Text;
@@ -26,6 +27,11 @@ namespace SuperAnretan.RemoteControl
         [Tooltip("Override NetworkConfig.DeviceName for this instance. Leave empty to use the config value.")]
         [SerializeField] private string _deviceNameOverride;
 
+        [Tooltip("Seconds without a main-thread Update after which the heartbeat pauses, so the server drops this host " +
+                 "from the list instead of advertising one that cannot answer (offers are dispatched from Update). " +
+                 "Resumes with the next Update.")]
+        [SerializeField] private float _mainLoopStallSeconds = 3f;
+
         [Header("Logging")]
         [SerializeField] private StringEventChannel _logChannel;
 
@@ -47,6 +53,16 @@ namespace SuperAnretan.RemoteControl
         private ClientWebSocket _socket;
         // Incremented per Connect(); events from an older run loop are ignored on dispatch.
         private int _generation;
+        // Milliseconds (monotonic) of the last Update; read from the connection loop's threads.
+        private long _lastMainLoopTick;
+
+        private static long NowMs => Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
+
+        // The heartbeat and the reconnect run on thread-pool threads and keep going while the player loop is
+        // paused (background) or blocked (no frames rendered): the server would list a host that never
+        // dispatches its inbox, and every offer would time out.
+        private bool MainLoopAlive =>
+            NowMs - Volatile.Read(ref _lastMainLoopTick) < (long)(Math.Max(_mainLoopStallSeconds, 1f) * 1000f);
 
         private void Awake()
         {
@@ -68,6 +84,7 @@ namespace SuperAnretan.RemoteControl
 
         private void Update()
         {
+            Volatile.Write(ref _lastMainLoopTick, NowMs);
             while (_inbox.TryDequeue(out var msg)) Dispatch(msg);
         }
 
@@ -84,6 +101,7 @@ namespace SuperAnretan.RemoteControl
 
             _cts = new CancellationTokenSource();
             _generation++;
+            Volatile.Write(ref _lastMainLoopTick, NowMs);
             _ = RunAsync(_cts.Token, _generation);
         }
 
@@ -141,6 +159,13 @@ namespace SuperAnretan.RemoteControl
 
             while (!ct.IsCancellationRequested)
             {
+                // Registering from a stalled loop would only advertise a deaf host.
+                while (!MainLoopAlive && !ct.IsCancellationRequested)
+                {
+                    try { await Task.Delay(500, ct); } catch (OperationCanceledException) { break; }
+                }
+                if (ct.IsCancellationRequested) break;
+
                 var ws = new ClientWebSocket();
                 _socket = ws;
                 try
@@ -161,7 +186,7 @@ namespace SuperAnretan.RemoteControl
                     }, ct);
 
                     using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    var heartbeatTask = HeartbeatAsync(ws, heartbeat, loopCts.Token);
+                    var heartbeatTask = HeartbeatAsync(ws, heartbeat, loopCts.Token, generation);
                     await ReceiveLoopAsync(ws, loopCts.Token, generation);
                     loopCts.Cancel();
                     try { await heartbeatTask; } catch { /* cancelled */ }
@@ -219,12 +244,23 @@ namespace SuperAnretan.RemoteControl
             }
         }
 
-        private async Task HeartbeatAsync(ClientWebSocket ws, float intervalSeconds, CancellationToken ct)
+        private async Task HeartbeatAsync(ClientWebSocket ws, float intervalSeconds, CancellationToken ct, int generation)
         {
             var hb = new SignalingMessage { type = "heartbeat" };
+            bool paused = false;
             while (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
             {
                 await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), ct);
+                if (!MainLoopAlive)
+                {
+                    // The socket stays open; the server drops the registry entry after deviceTimeout and the
+                    // first heartbeat after the stall puts it back.
+                    if (!paused) Enqueue("__log", "[Signaling] Main loop stalled — heartbeat paused until it runs again.", generation);
+                    paused = true;
+                    continue;
+                }
+                if (paused) Enqueue("__log", "[Signaling] Main loop running again — heartbeat resumed.", generation);
+                paused = false;
                 await SendAsync(ws, hb, ct);
             }
         }

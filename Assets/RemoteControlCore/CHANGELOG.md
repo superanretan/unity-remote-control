@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-09-28
+
+### Fixed
+- **A host that cannot answer no longer looks available.** `VisionProSignalingClient` heart-beats from a
+  thread-pool task, so a headset whose player loop was paused (app in the background) or blocked (no frames
+  rendered) stayed in the controller's list as `available` while its inbox was never dispatched; every
+  `Connect` then timed out after 20 s. The heartbeat now pauses once `Update` has not run for
+  `Main Loop Stall Seconds` (default 3), the server drops the entry after `deviceTimeout`, and the first
+  heartbeat after the stall re-inserts it. A reconnect waits for the loop for the same reason.
+
 ## [2.3.0] - 2026-09-09
 
 ### Added
